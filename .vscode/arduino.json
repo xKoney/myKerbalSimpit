@@ -1,0 +1,6 @@
+{
+    "board": "arduino:avr:uno",
+    "programmer": "arduino:avrisp",
+    "port": "COM5",
+    "sketch": "myKerbalSimpit.ino"
+}
