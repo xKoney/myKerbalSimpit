@@ -35,3 +35,5 @@ Due to the absurd amount of IOs (70+ LEDs and more than 40 buttons or joystick i
 ## Disclaimer
 
 As of the writing of this READ ME, I have not completed ordering or building this controller. I believe the design is in a finalized state, but I don't have the time to pursue this project at this moment. I hope to be able to build this controller soon. That being said, it would be prudent to verify the easyEDA file before shipping to a PCB manufacturer and do some dry fit test prints of the holes and components.
+
+Also, please forgive my terrible programming practices. This is my first programming project, and I'm a mechanical engineer, not a programmer. You'll notice a lot of commented out "test code", lack of comments, and probably some inefficient methods.
