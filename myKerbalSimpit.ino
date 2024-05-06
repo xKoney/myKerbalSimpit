@@ -32,34 +32,36 @@
 // ezButton antitargetButton(17);
 
 //Shift Register Declarations
-  //SHIFT OUT A (8 registers for output)
+
+//SHIFT OUT A (7 registers for output)
 const int SHIFT_OUT_A_DATA = 2;
 const int SHIFT_OUT_A_CLOCK = 3;
 const int SHIFT_OUT_A_LATCH = 4;
 bool shiftOutA[64];
 int outputA;
 
-//SHIFT OUT B (3 registers for output)
+//SHIFT OUT B (4 registers for output)
 const int SHIFT_OUT_B_DATA = 5;
 const int SHIFT_OUT_B_CLOCK = 6;
 const int SHIFT_OUT_B_LATCH = 7;
 bool shiftOutB[64];
 int outputB;
 
-//SHIFT IN A (4 registers)
+//SHIFT IN A (8 registers)
 const int SHIFT_IN_A_ENABLE = 8;
 const int SHIFT_IN_A_DATA = 9;
 const int SHIFT_IN_A_CLOCK = 10;
 const int SHIFT_IN_A_LATCH = 11;
 // bool shiftInA[16];
 
+/* 3rd set of shift registers no longer used
 //SHIFT OUT C (2 registers for output)
 const int SHIFT_OUT_C_DATA = 14;
 const int SHIFT_OUT_C_LATCH = 15;
 const int SHIFT_OUT_C_CLOCK = 16;
 bool shiftOutC[64];
 int outputC;
-
+*/
 
 bool sasButtons[10];
 bool sasButtonOld[10];
@@ -68,41 +70,96 @@ bool changeState = false;
 
 byte sasCurrentMode;
 
-ShiftIn<2> shiftInA;
+//Number of 74HC165 shift registers
+ShiftIn<8> shiftInA;
 
-// 0:Stability Assist
-// 1:Maneuver
-// 2:Prograde
-// 3:Retrograde
-// 4:Normal
-// 5:Anti-Normal
-// 6:Radial Out
-// 7:Radial In
-// 8:Target
-// 9:Anti-Target
+//0 : 10%
+//1 : 20%
+//2 : 30%
+//3 : 40%
+//4 : 50%
+//5 : 60%
+//6 : 70%
+//7 : 80%
+//8 : 90%
+//9 : 100%
 bool throtLED[10];
 
 float sfPercent = 100;
 float sfTotalOG = 0;
+//0 : Empty
+//1 : 10%
+//2 : 20%
+//3 : 30%
+//4 : 40%
+//5 : 50%
+//6 : 60%
+//7 : 70%
+//8 : 80%
+//9 : 90%
+//10 : 100%
 bool sfLEDS[11];
 
 float lfPercent = 100;
 float lfTotalOG = 0;
+//0 : Empty
+//1 : 10%
+//2 : 20%
+//3 : 30%
+//4 : 40%
+//5 : 50%
+//6 : 60%
+//7 : 70%
+//8 : 80%
+//9 : 90%
+//10 : 100%
 bool lfLEDS[11];
 
 float oxPercent = 100;
 float oxTotalOG = 0;
+//0 : Empty
+//1 : 10%
+//2 : 20%
+//3 : 30%
+//4 : 40%
+//5 : 50%
+//6 : 60%
+//7 : 70%
+//8 : 80%
+//9 : 90%
+//10 : 100%
 bool oxLEDS[11];
 
 float mpPercent = 100;
 float mpTotalOG = 0;
+//0 : Empty
+//1 : 10%
+//2 : 20%
+//3 : 30%
+//4 : 40%
+//5 : 50%
+//6 : 60%
+//7 : 70%
+//8 : 80%
+//9 : 90%
+//10 : 100%
 bool mpLEDS[11];
 
 float ecPercent = 100;
 float ecTotalOG = 0;
+//0 : Empty
+//1 : 10%
+//2 : 20%
+//3 : 30%
+//4 : 40%
+//5 : 50%
+//6 : 60%
+//7 : 70%
+//8 : 80%
+//9 : 90%
+//10 : 100%
 bool ecLEDS[11];
 
-bool sasModeLEDS[10];
 // 0 = Stability Assist
 // 1 = Maneuver
 // 2 = Prograde
@@ -113,6 +170,8 @@ bool sasModeLEDS[10];
 // 7 = Radial In
 // 8 = Target
 // 9 = Anti-Target
+bool sasModeLEDS[10];
+
 
 
 // int testArray[64];
@@ -189,9 +248,9 @@ void setup() {
   pinMode(SHIFT_OUT_B_CLOCK, OUTPUT);
   pinMode(SHIFT_OUT_B_LATCH, OUTPUT);
 
-  pinMode(SHIFT_OUT_C_DATA, OUTPUT);
-  pinMode(SHIFT_OUT_C_CLOCK, OUTPUT);
-  pinMode(SHIFT_OUT_C_LATCH, OUTPUT);
+  // pinMode(SHIFT_OUT_C_DATA, OUTPUT);
+  // pinMode(SHIFT_OUT_C_CLOCK, OUTPUT);
+  // pinMode(SHIFT_OUT_C_LATCH, OUTPUT);
 
   // pinMode(SHIFT_IN_A_DATA, INPUT);
   // pinMode(SHIFT_IN_A_CLOCK, OUTPUT);
@@ -542,6 +601,77 @@ if(shiftInA.pressed(15)){
   // Quit ALT+F4 = 0x73
 }
 
+/* Summary of ShiftIn Button Assignments
+
+[0] SAS Stability Assist
+[1] SAS Maneuver
+[2] SAS Prograde
+[3] SAS Retrograde
+[4] SAS Normal
+[5] SAS Anti-Normal
+[6] SAS Radial In
+[7] SAS Radial Out
+[8] SAS Target
+[9] SAS Anti-Target
+[10] Fuel Mode = Overall Total
+[11] Fuel Mode = Stage Total
+[12] Escape key for Pause
+[13] F5 key for Quick Save
+[14] F9 key for Quick Load
+[15] Alt+F4 for Quit
+[16] 
+[17] 
+[18] 
+[19] 
+[20] 
+[21] 
+[22] 
+[23] 
+[24] 
+[25] 
+[26] 
+[27] 
+[28] 
+[29] 
+[30] 
+[31] 
+[32] 
+[33] 
+[34] 
+[35] 
+[36] 
+[37] 
+[38] 
+[39] 
+[40] 
+[41] 
+[42] 
+[43] 
+[44] 
+[45] 
+[46] 
+[47] 
+[48] 
+[49] 
+[50] 
+[51] 
+[52] 
+[53] 
+[54] 
+[55] 
+[56] 
+[57] 
+[58] 
+[59] 
+[60] 
+[61] 
+[62] 
+[63] 
+
+*/
+
+
+
 }
   // setInputValues();
   // checkSASButtons();
@@ -672,7 +802,7 @@ if(shiftInA.pressed(15)){
   // setOutputValues();
   sendShiftOut(shiftOutB,SHIFT_OUT_B_DATA,SHIFT_OUT_B_LATCH,SHIFT_OUT_B_CLOCK);
 
-  sendShiftOut(shiftOutC,SHIFT_OUT_C_DATA,SHIFT_OUT_C_LATCH,SHIFT_OUT_C_CLOCK);
+  // sendShiftOut(shiftOutC,SHIFT_OUT_C_DATA,SHIFT_OUT_C_LATCH,SHIFT_OUT_C_CLOCK);
   // outputA = 0;
   // int i = 0;
   // for (int i = 0; i < sizeof(shiftOutA)/sizeof(shiftOutA[0]); ++i){
@@ -1356,16 +1486,16 @@ void setOutputValues()
     shiftOutB[7] = sasModeLEDS[7]; // A:7
     shiftOutB[8] = sasModeLEDS[8]; // B:0
     shiftOutB[9] = sasModeLEDS[9]; // B:1
-    shiftOutB[10] = 0; // B:2
-    shiftOutB[11] = 0; // B:3
-    shiftOutB[12] = 0; // B:4
-    shiftOutB[13] = 0; // B:5
-    shiftOutB[14] = 0; // B:6
-    shiftOutB[15] = 0; // B:7
-    shiftOutB[16] = 0; // C:0
-    shiftOutB[17] = 0; // C:1
-    shiftOutB[18] = 0; // C:2
-    shiftOutB[19] = 0; // C:3      
+    shiftOutB[10] = throtLED[0]; // B:2
+    shiftOutB[11] = throtLED[1]; // B:3
+    shiftOutB[12] = throtLED[2]; // B:4
+    shiftOutB[13] = throtLED[3]; // B:5
+    shiftOutB[14] = throtLED[4]; // B:6
+    shiftOutB[15] = throtLED[5]; // B:7
+    shiftOutB[16] = throtLED[6]; // C:0
+    shiftOutB[17] = throtLED[7]; // C:1
+    shiftOutB[18] = throtLED[8]; // C:2
+    shiftOutB[19] = throtLED[9]; // C:3      
     shiftOutB[20] = 0; // C:4      
     shiftOutB[21] = 0; // C:5      
     shiftOutB[22] = 0; // C:6      
@@ -1411,17 +1541,18 @@ void setOutputValues()
     shiftOutB[62] = 0; // H:6
     shiftOutB[63] = 0; // H:7
     
+    /* Third set of shift registers no longer used
     // Shift register out C
-    shiftOutC[0] = throtLED[0]; // A:0
-    shiftOutC[1] = throtLED[1]; // A:1
-    shiftOutC[2] = throtLED[2]; // A:2
-    shiftOutC[3] = throtLED[3]; // A:3
-    shiftOutC[4] = throtLED[4]; // A:4
-    shiftOutC[5] = throtLED[5]; // A:5
-    shiftOutC[6] = throtLED[6]; // A:6
-    shiftOutC[7] = throtLED[7]; // A:7
-    shiftOutC[8] = throtLED[8]; // B:0
-    shiftOutC[9] = throtLED[9]; // B:1
+    shiftOutC[0] = 0; // A:0
+    shiftOutC[1] = 0; // A:1
+    shiftOutC[2] = 0; // A:2
+    shiftOutC[3] = 0; // A:3
+    shiftOutC[4] = 0; // A:4
+    shiftOutC[5] = 0; // A:5
+    shiftOutC[6] = 0; // A:6
+    shiftOutC[7] = 0; // A:7
+    shiftOutC[8] = 0; // B:0
+    shiftOutC[9] = 0; // B:1
     shiftOutC[10] = 0; // B:2
     shiftOutC[11] = 0; // B:3
     shiftOutC[12] = 0; // B:4
@@ -1476,7 +1607,8 @@ void setOutputValues()
     shiftOutC[61] = 0; // H:5      
     shiftOutC[62] = 0; // H:6
     shiftOutC[63] = 0; // H:7
-    
+    */
+
 }
 
 void setInputValues()
