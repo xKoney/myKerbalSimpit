@@ -1,35 +1,8 @@
-/* KerbalSimpitActionSwitch
-   A demonstration of using two switches to command both SAS and RCS.
-   In this example, the KSP state is monitored to update the SAS and RCS
-   to match the switch state. This ensure that when using the keyboard or when
-   switching vessels, the game will still match the switch positions.
-   In addition, the LED_BUILTIN matches the SAS state.
-
-*/
 #include <KerbalSimpit.h>
 #include <ShiftIn.h>
-// #include "ezButton.h"
-// #include "ShiftOutX.h"
-// #include "ShiftPinNo.h"
 
-//const int SAS_SWITCH_PIN = 3; // the pin used for controlling SAS.
-//const int RCS_SWITCH_PIN = 4; // the pin used for controlling RCS.
-//const int ProgradePin = 5; //sas status on pin 5
-// int debounceTime = 50;
-
-// ezButton StageButton(6);
-
-// //SAS Actions
-// ezButton stabButton(7);
-// ezButton manButton(8);
-// ezButton progradeButton(9);
-// ezButton retrogradeButton(10);
-// ezButton normalButton(11);
-// ezButton antinormalButton(12);
-// ezButton radialoutButton(14);
-// ezButton radialinButton(15);
-// ezButton targetButton(16);
-// ezButton antitargetButton(17);
+bool joystickDebug = false;
+int cameraSensitivity = 100;
 
 //Shift Register Declarations
 
@@ -37,14 +10,14 @@
 const int SHIFT_OUT_A_DATA = 2;
 const int SHIFT_OUT_A_CLOCK = 3;
 const int SHIFT_OUT_A_LATCH = 4;
-bool shiftOutA[64];
+bool shiftOutA[56];
 int outputA;
 
 //SHIFT OUT B (4 registers for output)
 const int SHIFT_OUT_B_DATA = 5;
 const int SHIFT_OUT_B_CLOCK = 6;
 const int SHIFT_OUT_B_LATCH = 7;
-bool shiftOutB[64];
+bool shiftOutB[32];
 int outputB;
 
 //SHIFT IN A (8 registers)
@@ -52,38 +25,107 @@ const int SHIFT_IN_A_ENABLE = 8;
 const int SHIFT_IN_A_DATA = 9;
 const int SHIFT_IN_A_CLOCK = 10;
 const int SHIFT_IN_A_LATCH = 11;
-// bool shiftInA[16];
-
-/* 3rd set of shift registers no longer used
-//SHIFT OUT C (2 registers for output)
-const int SHIFT_OUT_C_DATA = 14;
-const int SHIFT_OUT_C_LATCH = 15;
-const int SHIFT_OUT_C_CLOCK = 16;
-bool shiftOutC[64];
-int outputC;
-*/
 
 bool sasButtons[10];
 bool sasButtonOld[10];
 bool sasButtonChange[10];
 bool changeState = false;
+bool sasToggleState;
+bool rcsToggleState;
 
 byte sasCurrentMode;
 
-//Number of 74HC165 shift registers
+//LED Definitions
+bool abortButtonLED = false;
+bool stageButtonLED = false;
+
+//Button state bools
+bool stageArmed;
+bool abortArmed;
+bool camRot;
+
+const long blinkDelay = 500; //delay blink by 500 milliseconds
+long abortSavedTime = 0;
+long stageSavedTime = 0;
+
+/* Summary of ShiftIn Button Assignments
+
+[0] SAS Stability Assist
+[1] SAS Maneuver
+[2] SAS Prograde
+[3] SAS Retrograde
+[4] SAS Normal
+[5] SAS Anti-Normal
+[6] SAS Radial In
+[7] SAS Radial Out
+[8] SAS Target
+[9] SAS Anti-Target
+[10] Fuel Mode = Overall Total (TRUE) or Stage Total (FALSE)
+[11] 
+[12] Escape key for Pause
+[13] F5 key for Quick Save
+[14] F9 key for Quick Load
+[15] Alt+F4 for Quit
+[16] Abort Armed
+[17] Abort Button
+[18] Stage Armed
+[19] Stage Button
+[20] SAS Toggle
+[21] RCS Toggle
+[22] Rocket Mode vs Plane Mode (Plane Mode = HIGH ; Rocket Mode = LOW)
+[23] Camera Rotation
+[24] 
+[25] 
+[26] 
+[27] 
+[28] 
+[29] 
+[30] 
+[31] 
+[32] 
+[33] 
+[34] 
+[35] 
+[36] 
+[37] 
+[38] 
+[39] 
+[40] 
+[41] 
+[42] 
+[43] 
+[44] 
+[45] 
+[46] 
+[47] 
+[48] 
+[49] 
+[50] 
+[51] 
+[52] 
+[53] 
+[54] 
+[55] 
+[56] 
+[57] 
+[58] 
+[59] 
+[60] 
+[61] 
+[62] 
+[63] 
+
+*/
 ShiftIn<8> shiftInA;
 
-//0 : 10%
-//1 : 20%
-//2 : 30%
-//3 : 40%
-//4 : 50%
-//5 : 60%
-//6 : 70%
-//7 : 80%
-//8 : 90%
-//9 : 100%
-bool throtLED[10];
+//0 : 0%
+//1 : 25%
+//2 : 50%
+//3 : 75%
+//4 : 100%
+bool throtLED[5];
+
+//Initialize all fuel percentages and LEDs
 
 float sfPercent = 100;
 float sfTotalOG = 0;
@@ -160,6 +202,7 @@ float ecTotalOG = 0;
 //10 : 100%
 bool ecLEDS[11];
 
+
 // 0 = Stability Assist
 // 1 = Maneuver
 // 2 = Prograde
@@ -173,24 +216,26 @@ bool ecLEDS[11];
 bool sasModeLEDS[10];
 
 
-
-// int testArray[64];
-
+bool rocketMode;
+bool planeMode;
 const int throttle = A0; //throttle
 const int rX = A1; //rotation x-axis
 const int rY = A2; //rotation y-axis
-int deadzoneCenter_rX = 550;
-int deadzoneCenter_rY = 562;
-int deadzoneCenter_rZ = 550;
+const int rZ = A3; //rotation z-axis
+const int tX = A4; //translation x-axis
+const int tY = A5; //translation y-axis
+const int tZ = A6; //translation z-axis
+int deadzoneCenter_rX = 518;
+int deadzoneCenter_rY = 540;
+int deadzoneCenter_rZ = 511;
+int deadzoneCenter_tX = 501;
+int deadzoneCenter_tY = 538;
+int deadzoneCenter_tZ = 511;
 int deadzone = 25;
-
-
-
-
-  int16_t pitch = 0; //y
-  int16_t roll = 0; //z
-  int16_t yaw = 0; //x
-  int16_t throt = 0; //throttle
+int16_t pitch = 0; //y
+int16_t roll = 0; //z
+int16_t yaw = 0; //x
+int16_t throt = 0; //throttle
 
 //Store the current action status, as recevied by simpit.
 byte currentActionStatus = 0;
@@ -218,25 +263,16 @@ void setup() {
   shiftInA.begin(SHIFT_IN_A_LATCH,SHIFT_IN_A_ENABLE,SHIFT_IN_A_DATA,SHIFT_IN_A_CLOCK);
   // StageButton.setDebounceTime(debounceTime);
 
-  // //SAS buttons
-  // stabButton.setDebounceTime(debounceTime);
-  // manButton.setDebounceTime(debounceTime);
-  // progradeButton.setDebounceTime(debounceTime);
-  // retrogradeButton.setDebounceTime(debounceTime);
-  // normalButton.setDebounceTime(debounceTime);
-  // antinormalButton.setDebounceTime(debounceTime);
-  // radialoutButton.setDebounceTime(debounceTime);
-  // radialinButton.setDebounceTime(debounceTime);
-  // targetButton.setDebounceTime(debounceTime);
-  // antitargetButton.setDebounceTime(debounceTime);
-
-
   // Set up the build in LED, and turn it on.
   pinMode(LED_BUILTIN, OUTPUT);
   //pinMode(ProgradePin, OUTPUT);
   pinMode(throttle,INPUT); //rotation x-axis
   pinMode(rX,INPUT); //rotation x-axis
   pinMode(rY,INPUT); //rotation y-axis
+  pinMode(rZ,INPUT); //rotation z-axis
+  pinMode(tX,INPUT); //translation x-axis
+  pinMode(tY,INPUT); //translation y-axis
+  pinMode(tZ,INPUT); //translation z-axis
   digitalWrite(LED_BUILTIN, HIGH);
 
   //Shift register pins
@@ -248,29 +284,11 @@ void setup() {
   pinMode(SHIFT_OUT_B_CLOCK, OUTPUT);
   pinMode(SHIFT_OUT_B_LATCH, OUTPUT);
 
-  // pinMode(SHIFT_OUT_C_DATA, OUTPUT);
-  // pinMode(SHIFT_OUT_C_CLOCK, OUTPUT);
-  // pinMode(SHIFT_OUT_C_LATCH, OUTPUT);
-
-  // pinMode(SHIFT_IN_A_DATA, INPUT);
-  // pinMode(SHIFT_IN_A_CLOCK, OUTPUT);
-  // pinMode(SHIFT_IN_A_LATCH, OUTPUT);
-  // pinMode(SHIFT_IN_A_ENABLE, OUTPUT);
-  // digitalWrite(SHIFT_IN_A_LATCH, HIGH);
-
-
-
-  // Set up the two switches with builtin pullup.
-  //pinMode(SAS_SWITCH_PIN, INPUT_PULLUP);
-  //pinMode(RCS_SWITCH_PIN, INPUT_PULLUP);
-
-  // This loop continually attempts to handshake with the plugin.
-  // It will keep retrying until it gets a successful handshake.
-
+if(!joystickDebug){
   while (!mySimpit.init()) {
    delay(100);
   }
-
+}
   // Turn off the built-in LED to indicate handshaking is complete.
   digitalWrite(LED_BUILTIN, LOW);
   // Display a message in KSP to indicate handshaking is complete.
@@ -299,110 +317,208 @@ void setup() {
   mySimpit.registerChannel(CAMERA_CONTROL_MODE);
   mySimpit.registerChannel(CAMERA_ROTATION_MESSAGE);
 
-  // int regsA = 5;
-
-  // for (int j = 0; j < 64; ++j){
-  //   testArray[j] = round(pow(2,j))-1;
-  //   }
-
-// bool testArray[64] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-// int testArray[64] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
-
-
-  // for (int i = 0; i < 64; i++){ 
-    
-  //   testArray[i] = 1;
-    
-    // digitalWrite(SHIFT_OUT_A_LATCH, HIGH);
-    // sendShiftOut(testArray,SHIFT_OUT_A_DATA,SHIFT_OUT_A_LATCH,SHIFT_OUT_A_CLOCK);
-    //shiftOut_X(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,5,testArray[i]);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>64);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>56);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>48);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>40);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>32);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>24);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>16);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>8);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]);
-    // digitalWrite(SHIFT_OUT_A_LATCH,LOW);
-    // delay(5000);
-  // }
-
+//Initialize bools for various LED states
   shiftInA.getCurrent();
   totalFuel = shiftInA.state(10);
-  stageFuel = shiftInA.state(11);
-  mySimpit.printToKSP("Initialize Total vs Stage");
-  mySimpit.printToKSP(String(totalFuel));
-  mySimpit.printToKSP(String(stageFuel));
+  stageFuel = !shiftInA.state(10);
+  abortArmed = shiftInA.state(16);
+  stageArmed = shiftInA.state(18);
+  sasToggleState = shiftInA.state(20);
+  rcsToggleState = shiftInA.state(21);
+  planeMode = shiftInA.state(22);
+  rocketMode = !shiftInA.state(22);
+  camRot = shiftInA.state(23);
+
+
+
   
-  //TOTvSTAGE = digitalRead(SAS_SWITCH_PIN);
+
 }
 
 void loop() {
 
-  // //Initialize Buttons
-  // StageButton.loop();
-
-  // //SAS Modes
-  // stabButton.loop();
-  // manButton.loop();
-  // progradeButton.loop();
-  // retrogradeButton.loop();
-  // normalButton.loop();
-  // antinormalButton.loop();
-  // radialoutButton.loop();
-  // radialinButton.loop();
-  // targetButton.loop();
-  // antitargetButton.loop();
-  
-  // Get the SAS switch state
-  //TOTvSTAGE = digitalRead(SAS_SWITCH_PIN);
-  
   // Check for new serial messages.
   mySimpit.update();
 
- uint16_t throtRAW = analogRead(throttle);
- uint16_t rXraw = analogRead(rX);
- uint16_t rYraw = analogRead(rY);
- 
-  if((deadzoneCenter_rX - deadzone) < rXraw && rXraw < (deadzoneCenter_rX + deadzone)){
+analogReference(EXTERNAL);
+int throtRAW = analogRead(throttle);
+
+int analogInput = analogRead(rX);
+analogInput = analogRead(rX); 
+
+if(rocketMode){
+
+  if((deadzoneCenter_rX - deadzone) < analogInput && analogInput < (deadzoneCenter_rX + deadzone)){
     yaw = 0;
   } else {
-    yaw = map(rXraw,0,1023,-32767,32767); //x
+    yaw = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //x
   }
 
-  if((deadzoneCenter_rY - deadzone) < rYraw && rYraw < (deadzoneCenter_rY + deadzone)){
+} else if(planeMode){
+
+  if((deadzoneCenter_rX - deadzone) < analogInput && analogInput < (deadzoneCenter_rX + deadzone)){
+    roll = 0;
+  } else {
+    roll = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //x
+  }
+
+
+}
+
+
+analogInput = analogRead(rY);
+analogInput = analogRead(rY);
+  if((deadzoneCenter_rY - deadzone) < analogInput && analogInput < (deadzoneCenter_rY + deadzone)){
     pitch = 0;
   } else {
-    pitch = map(rYraw,0,1023,-32767,32767); //y
+    pitch = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //y
   }
+
+analogInput = analogRead(rZ);
+analogInput = analogRead(rZ);
+
+if(rocketMode){
+
+  if((deadzoneCenter_rZ - deadzone) < analogInput && analogInput < (deadzoneCenter_rZ + deadzone)){
+    roll = 0;
+  } else {
+    roll = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX);; //z
+  }
+
+} else if(planeMode){
+
+  if((deadzoneCenter_rZ - deadzone) < analogInput && analogInput < (deadzoneCenter_rZ + deadzone)){
+    yaw = 0;
+  } else {
+    yaw = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX);; //z
+  }
+
+}
+
+  if(!joystickDebug){
+    if(camRot){
+        cameraRotationMessage myCamRot;
+        myCamRot.mask = 13; //send pitch, (not roll), yaw, and zoom all at once
+
+        //Optional roll control (using left joystick for zoom)
+        // myCamRot.mask = 7;
+
+        myCamRot.cameraPitch = pitch/cameraSensitivity; //y
+        if(rocketMode){
+          myCamRot.cameraYaw = yaw/cameraSensitivity; //x if rocket, z if plane
+
+          //Optional roll control (using left joystick for zoom)
+          // myCamRot.cameraRoll = roll;
+
+          myCamRot.cameraZoom = -roll/cameraSensitivity;
+
+        } else if(planeMode){
+          myCamRot.cameraYaw = roll/cameraSensitivity;
+
+          //Optional roll control (using left joystick for zoom)
+          // myCamRot.cameraRoll = yaw;
+
+          myCamRot.cameraZoom = -yaw/cameraSensitivity;
+
+        }
+      
+      mySimpit.send(CAMERA_ROTATION_MESSAGE, myCamRot);
+
+    } else {
+      rotationMessage myRot;
+      myRot.mask = 7; //send pitch, yaw, and roll all at once
+
+      myRot.pitch = pitch; //y
+      myRot.yaw = yaw; //x if rocket, z if plane
+      myRot.roll = roll; //z if rocket, x if plane
+      mySimpit.send(ROTATION_MESSAGE, myRot);
+    }
   
-  yaw *= -1; //invert x axis
+  }
 
-  rotationMessage myRot;
-  myRot.mask = 7; //send pitch, yaw, and roll all at once
 
-  myRot.pitch = pitch; //y
-  myRot.yaw = yaw; //x
-  myRot.roll = roll; //z
+if(rocketMode && !planeMode){
 
-/*
-  Serial.println("X =");
-    Serial.println(yaw);
-    Serial.println(rXraw);
-  Serial.println("Y ="); 
-    Serial.println(pitch);
-    Serial.println(rYraw);
+  analogInput = analogRead(tX);
+  analogInput = analogRead(tX);
+  int translationX = 0;
+    if((deadzoneCenter_tX - deadzone) < analogInput && analogInput < (deadzoneCenter_tX + deadzone)){
+      translationX = 0;
+    } else {
+      translationX = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //x
+    }
+
+  analogInput = analogRead(tY);
+  analogInput = analogRead(tY);
+  int translationY = 0;
+    if((deadzoneCenter_tY - deadzone) < analogInput && analogInput < (deadzoneCenter_tY + deadzone)){
+      translationY = 0;
+    } else {
+      translationY = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //y
+    }
+
+  analogInput = analogRead(tZ);
+  analogInput = analogRead(tZ);
+  int translationZ = 0;
+    if((deadzoneCenter_tZ - deadzone) < analogInput && analogInput < (deadzoneCenter_tZ + deadzone)){
+      translationZ = 0;
+    } else {
+      translationZ = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX);; //z
+    }
+
+      translationMessage translation_msg;
+      translation_msg.setX(translationX);
+      translation_msg.setY(translationY);
+      translation_msg.setZ(translationZ);
+      
+      if(!joystickDebug){
+        if(camRot){
+          //Optional zoom control using left joystick
+
+          // cameraRotationMessage myCamRot;
+          // myCamRot.mask = 8;
+          // myCamRot.cameraZoom = translationZ/cameraSensitivity;
+          // mySimpit.send(CAMERA_ROTATION_MESSAGE,myCamRot);
+        } else {
+          mySimpit.send(TRANSLATION_MESSAGE, translation_msg);
+        }
+      
+      }
+}
+
+if(joystickDebug){
+  Serial.println("tX =");
+  analogRead(tX);
+    Serial.println(String(analogRead(tX)));
+    delay(50);
+  Serial.println("tY ="); 
+  analogRead(tY);
+    Serial.println(String(analogRead(tY)));
+        delay(50);
+  Serial.println("tZ ="); 
+  analogRead(tZ);
+  Serial.println(String(analogRead(tZ)));
+      delay(50);
+    Serial.println("rX =");
+    analogRead(rX);
+    Serial.println(String(analogRead(rX)));
+        delay(50);
+  Serial.println("rY ="); 
+  analogRead(rY);
+    Serial.println(String(analogRead(rY)));
+        delay(50);
+  Serial.println("rZ ="); 
+  analogRead(rZ);
+  Serial.println(String(analogRead(rZ)));
+      delay(50);
   delay(1500);
-*/
-  
-  mySimpit.send(ROTATION_MESSAGE, myRot);
+}
+
   if(throtRAW < 75){
     throtRAW = 0;
   }
 
-  throt = map(throtRAW,0,1023,0,32767);
+  throt = map(throtRAW,0,1023,0,INT16_MAX);
 
   throttleMessage throttleMsg;
 
@@ -410,449 +526,191 @@ void loop() {
 
   mySimpit.send(THROTTLE_MESSAGE, throttleMsg);
 
-  for (int i = 0; i < 10; i++){
-    if(throt > i*3276){
+  for (int i = 0; i < 5; i++){
+    if(throt >= i*8190){
       throtLED[i] = 1;
     } else {
       throtLED[i] = 0;
     }
   }
 
-//  if(StageButton.isPressed()){
-//   mySimpit.activateAction(STAGE_ACTION);
-//  }
+if(shiftInA.update()){
+  
+  if(shiftInA.pressed(0)){
+    mySimpit.setSASMode(AP_STABILITYASSIST);
+    // sasButtons[0] = 0;
+  }
 
-// //SAS Mode Buttons
-//  if(stabButton.isPressed()){
-//    mySimpit.setSASMode(AP_STABILITYASSIST);
-//  }
-//   if(manButton.isPressed()){
-//    mySimpit.setSASMode(AP_MANEUVER);
-//  }
-//   if(progradeButton.isPressed()){
-//    mySimpit.setSASMode(AP_PROGRADE);
-//  }
-//   if(retrogradeButton.isPressed()){
-//    mySimpit.setSASMode(AP_RETROGRADE);
-//  }
-//   if(normalButton.isPressed()){
-//    mySimpit.setSASMode(AP_NORMAL);
-//  }
-//   if(antinormalButton.isPressed()){
-//    mySimpit.setSASMode(AP_ANTINORMAL);
-//  }
-//    if(radialoutButton.isPressed()){
-//    mySimpit.setSASMode(AP_RADIALIN);
-//  }
-//   if(radialinButton.isPressed()){
-//    mySimpit.setSASMode(AP_RADIALOUT);
-//  }
-//   if(targetButton.isPressed()){
-//     mySimpit.setSASMode(AP_TARGET);
-//  }
-//    if(antitargetButton.isPressed()){
-//     mySimpit.setSASMode(AP_ANTITARGET);
-//  }
+  if(shiftInA.pressed(1)){
+    mySimpit.setSASMode(AP_MANEUVER);
+    // sasButtons[1] = 0;
+  }
+
+  if(shiftInA.pressed(2)){
+    mySimpit.setSASMode(AP_PROGRADE);
+    // sasButtons[2] = 0;
+  }
+
+  if(shiftInA.pressed(3)){
+    mySimpit.setSASMode(AP_RETROGRADE);
+    // sasButtons[3] = 0;
+  }
+
+  if(shiftInA.pressed(4)){
+    mySimpit.setSASMode(AP_NORMAL);
+    // sasButtons[4] = 0;
+  }
+
+  if(shiftInA.pressed(5)){
+    mySimpit.setSASMode(AP_ANTINORMAL);
+    // sasButtons[5] = 0;
+  }
+
+  if(shiftInA.pressed(6)){
+    mySimpit.setSASMode(AP_RADIALIN);
+    // sasButtons[6] = 0;
+  }
+
+  if(shiftInA.pressed(7)){
+    mySimpit.setSASMode(AP_RADIALOUT);
+    // sasButtons[7] = 0;
+  }
+
+  if(shiftInA.pressed(8)){
+    mySimpit.setSASMode(AP_TARGET);
+    // sasButtons[8] = 0;
+  }
+
+  if(shiftInA.pressed(9)){
+    mySimpit.setSASMode(AP_ANTITARGET);
+    // sasButtons[9] = 0;
+  }
+
+  if(shiftInA.state(10) && shiftInA.pressed(10)){
+    totalFuel = true;
+    stageFuel = false;
+  }
+
+  if(shiftInA.released(10) && !shiftInA.state(10)){
+    totalFuel = false;
+    stageFuel = true;
+  }
 
 
-/*
-  // Update the SAS to match the state, only if a change is needed to avoid
-  // spamming commands.
-  if(sas_switch_state && !(currentActionStatus & SAS_ACTION)){
-    mySimpit.printToKSP("Activate SAS!");
+  //Pin 11
+
+  if(shiftInA.pressed(12)){
+    keyboardEmulatorMessage keyMsg(0x1B);
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // Pause ESC = 0x1B
+  }
+
+  if(shiftInA.pressed(13)){
+    keyboardEmulatorMessage keyMsg(0x74);
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // Save F5 = 0x74
+  }
+
+  if(shiftInA.pressed(14)){
+    keyboardEmulatorMessage keyMsg(0x78);
+    keyMsg.modifier = KEY_DOWN_MOD;
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    delay(1000); //press and hold for 1 second
+    keyMsg.modifier = KEY_UP_MOD;
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // Load F9 = 0x78
+  }
+
+  if(shiftInA.pressed(15)){
+    keyboardEmulatorMessage keyMsg(0x73,ALT_MOD);
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // Quit ALT+F4 = 0x73
+  }
+
+  if(shiftInA.state(16) && shiftInA.pressed(16)){
+    abortArmed = true;
+    abortButtonLED = true;
+    abortSavedTime = millis();
+  }
+
+  if(shiftInA.released(16) && !shiftInA.state(16)){
+    abortArmed = false;
+    abortButtonLED = false;
+  }
+
+  if(shiftInA.pressed(17) && abortArmed){
+    mySimpit.activateAction(ABORT_ACTION);
+  }
+
+  if(shiftInA.state(18) && shiftInA.pressed(18)){
+    stageArmed = true;
+    stageButtonLED = true;
+    stageSavedTime = millis();
+  }
+
+  if(shiftInA.released(18) && !shiftInA.state(18)){
+    stageArmed = false;
+    stageButtonLED = false;
+  }
+
+  if(shiftInA.pressed(19) && stageArmed){
+    mySimpit.activateAction(STAGE_ACTION);
+  }
+
+  if(shiftInA.state(20) && shiftInA.pressed(20)){
+    sasToggleState = true;
     mySimpit.activateAction(SAS_ACTION);
   }
-  if(!sas_switch_state && (currentActionStatus & SAS_ACTION)){
-    mySimpit.printToKSP("Deactivate SAS!");
+
+  if(shiftInA.released(20) && !shiftInA.state(20)){
+    sasToggleState = false;
     mySimpit.deactivateAction(SAS_ACTION);
-  }
-*/
-/*
+  }  
 
-Template for toggle inputs
-
-  // Get the SAS switch state
-  bool **state = digitalRead(**PIN);
-
-  // Update the SAS to match the state, only if a change is needed to avoid
-  // spamming commands.
-  if(sas_switch_state && !(currentActionStatus & SAS_ACTION)){
-    mySimpit.printToKSP("Activate SAS!");
-    mySimpit.activateAction(SAS_ACTION);
-  }
-  if(!sas_switch_state && (currentActionStatus & SAS_ACTION)){
-    mySimpit.printToKSP("Deactivate SAS!");
-    mySimpit.deactivateAction(SAS_ACTION);
-  }
-
-*/
-
-/*
-  // Get the RCS switch state
-  bool rcs_switch_state = digitalRead(RCS_SWITCH_PIN);
-
-  // Update the RCS to match the state, only if a change is needed to avoid
-  // spamming commands.
-  if(rcs_switch_state && !(currentActionStatus & RCS_ACTION)){
-    mySimpit.printToKSP("Activate RCS!");
+  if(shiftInA.state(21) && shiftInA.pressed(21)){
+    rcsToggleState = true;
     mySimpit.activateAction(RCS_ACTION);
   }
-  if(!rcs_switch_state && (currentActionStatus & RCS_ACTION)){
-    mySimpit.printToKSP("Deactivate RCS!");
+
+  if(shiftInA.released(21) && !shiftInA.state(21)){
+    rcsToggleState = false;
     mySimpit.deactivateAction(RCS_ACTION);
-  }*/
+  }  
 
-  // getShiftIn(SHIFT_IN_A_ENABLE,SHIFT_IN_A_DATA,SHIFT_IN_A_CLOCK,SHIFT_IN_A_LATCH);
-if(shiftInA.update()){
-
-  
-if(shiftInA.pressed(0)){
-  mySimpit.setSASMode(AP_STABILITYASSIST);
-  // sasButtons[0] = 0;
-}
-
-if(shiftInA.pressed(1)){
-  mySimpit.setSASMode(AP_MANEUVER);
-  // sasButtons[1] = 0;
-}
-
-if(shiftInA.pressed(2)){
-  mySimpit.setSASMode(AP_PROGRADE);
-  // sasButtons[2] = 0;
-}
-
-if(shiftInA.pressed(3)){
-  mySimpit.setSASMode(AP_RETROGRADE);
-  // sasButtons[3] = 0;
-}
-
-if(shiftInA.pressed(4)){
-  mySimpit.setSASMode(AP_NORMAL);
-  // sasButtons[4] = 0;
-}
-
-if(shiftInA.pressed(5)){
-  mySimpit.setSASMode(AP_ANTINORMAL);
-  // sasButtons[5] = 0;
-}
-
-if(shiftInA.pressed(6)){
-  mySimpit.setSASMode(AP_RADIALIN);
-  // sasButtons[6] = 0;
-}
-
-if(shiftInA.pressed(7)){
-  mySimpit.setSASMode(AP_RADIALOUT);
-  // sasButtons[7] = 0;
-}
-
-if(shiftInA.pressed(8)){
-  mySimpit.setSASMode(AP_TARGET);
-  // sasButtons[8] = 0;
-}
-
-if(shiftInA.pressed(9)){
-  mySimpit.setSASMode(AP_ANTITARGET);
-  // sasButtons[9] = 0;
-}
-
-if(shiftInA.pressed(10)){
-  mySimpit.printToKSP("Total Fuel Mode Activated!");
-  totalFuel = 1;
-  stageFuel = 0;
-}
-
-if(shiftInA.pressed(11)){
-  mySimpit.printToKSP("Stage Fuel Mode Activated!");
-  stageFuel = 1;
-  totalFuel = 0;
-}
-
-if((!shiftInA.state(10)) && (!shiftInA.state(11))){
-  totalFuel = 1;
-  stageFuel = 0;
-}
-
-if(shiftInA.pressed(12)){
-  keyboardEmulatorMessage keyMsg(0x1B);
-  mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
-  // Pause ESC = 0x1B
-}
-
-if(shiftInA.pressed(13)){
-  keyboardEmulatorMessage keyMsg(0x74);
-  mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
-  // Save F5 = 0x74
-}
-
-if(shiftInA.pressed(14)){
-  keyboardEmulatorMessage keyMsg(0x78);
-  keyMsg.modifier = KEY_DOWN_MOD;
-  mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
-  delay(1000); //press and hold for 1 second
-  keyMsg.modifier = KEY_UP_MOD;
-  mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
-  // Load F9 = 0x78
-}
-
-if(shiftInA.pressed(15)){
-  keyboardEmulatorMessage keyMsg(0x73,ALT_MOD);
-  mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
-  // Quit ALT+F4 = 0x73
-}
-
-/* Summary of ShiftIn Button Assignments
-
-[0] SAS Stability Assist
-[1] SAS Maneuver
-[2] SAS Prograde
-[3] SAS Retrograde
-[4] SAS Normal
-[5] SAS Anti-Normal
-[6] SAS Radial In
-[7] SAS Radial Out
-[8] SAS Target
-[9] SAS Anti-Target
-[10] Fuel Mode = Overall Total
-[11] Fuel Mode = Stage Total
-[12] Escape key for Pause
-[13] F5 key for Quick Save
-[14] F9 key for Quick Load
-[15] Alt+F4 for Quit
-[16] 
-[17] 
-[18] 
-[19] 
-[20] 
-[21] 
-[22] 
-[23] 
-[24] 
-[25] 
-[26] 
-[27] 
-[28] 
-[29] 
-[30] 
-[31] 
-[32] 
-[33] 
-[34] 
-[35] 
-[36] 
-[37] 
-[38] 
-[39] 
-[40] 
-[41] 
-[42] 
-[43] 
-[44] 
-[45] 
-[46] 
-[47] 
-[48] 
-[49] 
-[50] 
-[51] 
-[52] 
-[53] 
-[54] 
-[55] 
-[56] 
-[57] 
-[58] 
-[59] 
-[60] 
-[61] 
-[62] 
-[63] 
-
-*/
-
-
-
-}
-  // setInputValues();
-  // checkSASButtons();
-
-
-
-
-
-// 0:Stability Assist
-// 1:Maneuver
-// 2:Prograde
-// 3:Retrograde
-// 4:Normal
-// 5:Anti-Normal
-// 6:Radial Out
-// 7:Radial In
-// 8:Target
-// 9:Anti-Target
-
-// //  && (currentActionStatus & SAS_ACTION)
-// if((sasButtonChange[0] == true) && (sasCurrentMode != AP_STABILITYASSIST)){
-//   mySimpit.setSASMode(AP_STABILITYASSIST);
-//   // sasButtons[0] = 0;
-// }
-
-// if((sasButtonChange[1] == true) && (sasCurrentMode != AP_MANEUVER)){
-//   mySimpit.setSASMode(AP_MANEUVER);
-//   // sasButtons[1] = 0;
-// }
-
-// if((sasButtonChange[2] == true) && (sasCurrentMode != AP_PROGRADE)){
-//   mySimpit.setSASMode(AP_PROGRADE);
-//   // sasButtons[2] = 0;
-// }
-
-// if((sasButtonChange[3] == true) && (sasCurrentMode != AP_RETROGRADE)){
-//   mySimpit.setSASMode(AP_RETROGRADE);
-//   // sasButtons[3] = 0;
-// }
-
-// if((sasButtonChange[4] == true) && (sasCurrentMode != AP_NORMAL)){
-//   mySimpit.setSASMode(AP_NORMAL);
-//   // sasButtons[4] = 0;
-// }
-
-// if((sasButtonChange[5] == true) && (sasCurrentMode != AP_ANTINORMAL)){
-//   mySimpit.setSASMode(AP_ANTINORMAL);
-//   // sasButtons[5] = 0;
-// }
-
-// if((sasButtonChange[6] == true) && (sasCurrentMode != AP_RADIALIN)){
-//   mySimpit.setSASMode(AP_RADIALIN);
-//   // sasButtons[6] = 0;
-// }
-
-// if((sasButtonChange[7] == true) && (sasCurrentMode != AP_RADIALOUT)){
-//   mySimpit.setSASMode(AP_RADIALOUT);
-//   // sasButtons[7] = 0;
-// }
-
-// if((sasButtonChange[8] == true) && (sasCurrentMode != AP_TARGET)){
-//   mySimpit.setSASMode(AP_TARGET);
-//   // sasButtons[8] = 0;
-// }
-
-// if((sasButtonChange[9] == true) && (sasCurrentMode != AP_ANTITARGET)){
-//   mySimpit.setSASMode(AP_ANTITARGET);
-//   // sasButtons[9] = 0;
-// }
-
-// //without checking current mode
-
-// if((sasButtonChange[0] == true)){
-//   mySimpit.setSASMode(AP_STABILITYASSIST);
-//   // sasButtons[0] = 0;
-// }
-
-// if((sasButtonChange[1] == true)){
-//   mySimpit.setSASMode(AP_MANEUVER);
-//   // sasButtons[1] = 0;
-// }
-
-// if((sasButtonChange[2] == true)){
-//   mySimpit.setSASMode(AP_PROGRADE);
-//   // sasButtons[2] = 0;
-// }
-
-// if((sasButtonChange[3] == true)){
-//   mySimpit.setSASMode(AP_RETROGRADE);
-//   // sasButtons[3] = 0;
-// }
-
-// if((sasButtonChange[4] == true)){
-//   mySimpit.setSASMode(AP_NORMAL);
-//   // sasButtons[4] = 0;
-// }
-
-// if((sasButtonChange[5] == true)){
-//   mySimpit.setSASMode(AP_ANTINORMAL);
-//   // sasButtons[5] = 0;
-// }
-
-// if((sasButtonChange[6] == true)){
-//   mySimpit.setSASMode(AP_RADIALIN);
-//   // sasButtons[6] = 0;
-// }
-
-// if((sasButtonChange[7] == true)){
-//   mySimpit.setSASMode(AP_RADIALOUT);
-//   // sasButtons[7] = 0;
-// }
-
-// if((sasButtonChange[8] == true)){
-//   mySimpit.setSASMode(AP_TARGET);
-//   // sasButtons[8] = 0;
-// }
-
-// if((sasButtonChange[9] == true)){
-//   mySimpit.setSASMode(AP_ANTITARGET);
-//   // sasButtons[9] = 0;
-// }
-
-    
-
-
-  setOutputValues();
-  sendShiftOut(shiftOutA,SHIFT_OUT_A_DATA,SHIFT_OUT_A_LATCH,SHIFT_OUT_A_CLOCK);
-  // setOutputValues();
-  sendShiftOut(shiftOutB,SHIFT_OUT_B_DATA,SHIFT_OUT_B_LATCH,SHIFT_OUT_B_CLOCK);
-
-  // sendShiftOut(shiftOutC,SHIFT_OUT_C_DATA,SHIFT_OUT_C_LATCH,SHIFT_OUT_C_CLOCK);
-  // outputA = 0;
-  // int i = 0;
-  // for (int i = 0; i < sizeof(shiftOutA)/sizeof(shiftOutA[0]); ++i){
-
-  //   int binaryAdd = shiftOutA[i]*round(pow(2,i));
-
-  //   outputA += binaryAdd;
-  // }
-/*
-  String myString = "ShiftOut = ";
-  for (int j = 0; j < sizeof(shiftOutA)/sizeof(shiftOutA[0]); ++j){
-      myString += String((int)shiftOutA[j]);
+  if(shiftInA.state(22) && shiftInA.pressed(22)){
+    planeMode = true;
+    rocketMode = false;
   }
-*/
-  //mySimpit.printToKSP(String(outputA));
-  //mySimpit.printToKSP(myString);
-  // digitalWrite(SHIFT_OUT_A_LATCH, HIGH);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>64);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>56);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>48);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>40);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>32);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>24);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>16);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA>>8);
-  // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,outputA);
-  // digitalWrite(SHIFT_OUT_A_LATCH,LOW);
 
-  // bool testArray[64] = {0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-// int testArray[64] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  if(shiftInA.released(22) && !shiftInA.state(22)){
+    rocketMode = true;
+    planeMode = false;
+  }
+
+  if(shiftInA.state(23) && shiftInA.pressed(23)){
+    camRot = true;
+  }
+
+  if(shiftInA.released(23) && !shiftInA.state(23)){
+    camRot = false;
+  }
 
 
-  // for (int i = 0; i < 64; i++){ 
-    
-  //   testArray[i] = 1;
-    
-    // digitalWrite(SHIFT_OUT_A_LATCH, HIGH);
-    // sendShiftOut(testArray,SHIFT_OUT_A_DATA,SHIFT_OUT_A_LATCH,SHIFT_OUT_A_CLOCK);
-    //shiftOut_X(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,5,testArray[i]);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>64);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>56);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>48);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>40);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>32);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>24);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>16);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]>>8);
-    // shiftOut(SHIFT_OUT_A_DATA,SHIFT_OUT_A_CLOCK,MSBFIRST,testArray[i]);
-    // digitalWrite(SHIFT_OUT_A_LATCH,LOW);
-    // delay(5000);
+}
+
+//Stage & Abort LED Blink
+if(stageArmed && millis() - stageSavedTime >= blinkDelay){
+  stageButtonLED = !stageButtonLED;
+  stageSavedTime = millis();
+}
+if(abortArmed && millis() - abortSavedTime >= blinkDelay){
+  abortButtonLED = !abortButtonLED;
+  abortSavedTime = millis();
+}
+
+setOutputValues();
+sendShiftOut(shiftOutA,SHIFT_OUT_A_DATA,SHIFT_OUT_A_LATCH,SHIFT_OUT_A_CLOCK);
+sendShiftOut(shiftOutB,SHIFT_OUT_B_DATA,SHIFT_OUT_B_LATCH,SHIFT_OUT_B_CLOCK);    // sendShiftOut(testArray,SHIFT_OUT_A_DATA,SHIFT_OUT_A_LATCH,SHIFT_OUT_A_CLOCK);
 
 }
 
@@ -1005,52 +863,7 @@ void messageHandler(byte messageType, byte msg[], byte msgSize) {
             
               
         }
-   
-   
-   /* 
-    if(TOTvSTAGE){
-      break;
-    } else {
-  if(msgSize == sizeof(resourceMessage)) {
-   
-    resourceMessage myLF_TOT;
-    myLF_TOT = parseResource(msg);
 
-    //initialize total Liquid Fuel
-    if(LF_TOT_T == 0){
-      LF_TOT_T = myLF_TOT.total;
-    }
-    
-    //continuously update available Liquid Fuel
-    LF_TOT_A = myLF_TOT.available;
-
-    //avoid divide by 0 if there's no fuel available
-    if(LF_TOT_A == 0){
-      //mySimpit.printToKSP("LF Available = " + String(LF_TOT_A,3));
-      digitalWrite(ProgradePin, HIGH);
-    } else {
-       
-    //calculate percent from Total
-    percentLF_TOT = 100* LF_TOT_A / LF_TOT_T;
-    
-      if(percentLF_TOT < 50) {
-          mySimpit.printToKSP("TOTALLF Calculation performed");
-          mySimpit.printToKSP("Total: " + String(LF_TOT_T,3));
-          mySimpit.printToKSP("Available: " + String(LF_TOT_A,3));
-          mySimpit.printToKSP("Percent: " + String(percentLF_TOT,3));
-          digitalWrite(ProgradePin, HIGH);
-      } else {
-          digitalWrite(ProgradePin, LOW);
-          mySimpit.printToKSP("TOTALLF Calculation performed");
-          mySimpit.printToKSP("Total: " + String(LF_TOT_T,3));
-          mySimpit.printToKSP("Available: " + String(LF_TOT_A,3));
-          mySimpit.printToKSP("Percent: " + String(percentLF_TOT,3));
-      }
-          
-    }
-  }
- }
-  */
   break;
 case LF_STAGE_MESSAGE:
       if (msgSize == sizeof(resourceMessage))
@@ -1082,52 +895,7 @@ case LF_STAGE_MESSAGE:
 
 
         }
-   /*  
-     
-      if(TOTvSTAGE){
-      
-  if(msgSize == sizeof(resourceMessage)) {
-    resourceMessage myLF_STAGE;
-    myLF_STAGE = parseResource(msg);
 
-    //initialize total Liquid Fuel
-    
-
-   LF_STAGE_T = myLF_STAGE.total;
-    
-
-    //continuously update available Liquid Fuel
-    LF_STAGE_A = myLF_STAGE.available;
-
-    //avoid divide by 0 if there's no fuel available
-    if(LF_STAGE_A == 0){
-      //mySimpit.printToKSP("LF Available = " + String(LF_STAGE_A,3));
-      digitalWrite(ProgradePin, HIGH);
-    } else {
-       
-    //calculate percent from Total
-    percentLF_STAGE = 100* LF_STAGE_A / LF_STAGE_T;
-    
-      if(percentLF_STAGE < 50) {
-          mySimpit.printToKSP("STAGELF Calculation performed");
-          mySimpit.printToKSP("Total: " + String(LF_STAGE_T,3));
-          mySimpit.printToKSP("Available: " + String(LF_STAGE_A,3));
-          mySimpit.printToKSP("Percent: " + String(percentLF_STAGE,3));
-          digitalWrite(ProgradePin, HIGH);
-      } else {
-          digitalWrite(ProgradePin, LOW);
-          mySimpit.printToKSP("STAGELF Calculation performed");
-          mySimpit.printToKSP("Total: " + String(LF_STAGE_T,3));
-          mySimpit.printToKSP("Available: " + String(LF_STAGE_A,3));
-          mySimpit.printToKSP("Percent: " + String(percentLF_STAGE,3));
-      }
-          
-    }
- }
-      } else {
-        break;
-      }
-  */
   break;
 case OX_MESSAGE:
   if (msgSize == sizeof(resourceMessage))
@@ -1201,33 +969,6 @@ case OX_STAGE_MESSAGE:
 
 
         }
-  // if (msgSize == sizeof(resourceMessage))
-  //         {
-  //           resourceMessage sf;
-  //           sf = parseMessage<resourceMessage>(msg);
-
-  //           if(sfTotalOG == 0){
-  //             sfTotalOG = sf.total;
-  //           }
-
-
-  //           sfPercent = 100 * sf.available / sfTotalOG;
-            
-  //           sfLEDS[10] = (sfPercent > 90.0); //blue 100% LED
-  //           sfLEDS[9] = (sfPercent > 80.0);
-  //           sfLEDS[8] = (sfPercent > 70.0);
-  //           sfLEDS[7] = (sfPercent > 60.0);
-  //           sfLEDS[6] = (sfPercent > 50.0);
-  //           sfLEDS[5] = (sfPercent > 40.0);
-  //           sfLEDS[4] = (sfPercent > 30.0);
-  //           sfLEDS[3] = (sfPercent > 20.0);
-  //           sfLEDS[2] = (sfPercent > 10.0);
-  //           sfLEDS[1] = (sfPercent > 0.0); //last red LED
-  //           sfLEDS[0] = ((sfTotalOG == 0) || (sfPercent < 0.000001)); //extra "empty" LED
-              
-        
-
-  //         }
 break;
 
 case MONO_MESSAGE:
@@ -1293,28 +1034,6 @@ break;
   
   }
 }
-
-/*void checkLFTOT() {
-
-    float LF_TOT_T = myLF_TOT.total;
-    float LF_TOT_A = myLF_TOT.available;
-    float percentLF_TOT = LF_TOT_A / LF_TOT_T;
-    
-  if(percentLF_TOT < 0.50) {
-          mySimpit.printToKSP("Calculation performed");
-    mySimpit.printToKSP("Total: " + String(LF_TOT_T,3));
-    mySimpit.printToKSP("Available: " + String(LF_TOT_A,3));
-    mySimpit.printToKSP("Percent: " + String(percentLF_TOT,3));
-    digitalWrite(ProgradePin, HIGH);
-    } else {
-      digitalWrite(ProgradePin, LOW);
-          mySimpit.printToKSP("Calculation performed");
-    mySimpit.printToKSP("Total: " + String(LF_TOT_T,3));
-    mySimpit.printToKSP("Available: " + String(LF_TOT_A,3));
-    mySimpit.printToKSP("Percent: " + String(percentLF_TOT,3));
-    }
-    
-}*/
 
 void sendShiftOut(bool pins[], int dataPin, int latchPin, int clockPin)
 {
@@ -1408,70 +1127,70 @@ void sendShiftOut(bool pins[], int dataPin, int latchPin, int clockPin)
 void setOutputValues()
 {
     // Shift register out A
-    shiftOutA[0] = sfLEDS[0]; // A:0
-    shiftOutA[1] = sfLEDS[1]; // A:1
-    shiftOutA[2] = sfLEDS[2]; // A:2
-    shiftOutA[3] = sfLEDS[3]; // A:3
-    shiftOutA[4] = sfLEDS[4]; // A:4
-    shiftOutA[5] = sfLEDS[5]; // A:5
-    shiftOutA[6] = sfLEDS[6]; // A:6
-    shiftOutA[7] = sfLEDS[7]; // A:7
-    shiftOutA[8] = sfLEDS[8]; // B:0
-    shiftOutA[9] = sfLEDS[9]; // B:1
-    shiftOutA[10] = sfLEDS[10]; // B:2
-    shiftOutA[11] = lfLEDS[0]; // B:3
-    shiftOutA[12] = lfLEDS[1]; // B:4
-    shiftOutA[13] = lfLEDS[2]; // B:5
-    shiftOutA[14] = lfLEDS[3]; // B:6
-    shiftOutA[15] = lfLEDS[4]; // B:7
-    shiftOutA[16] = lfLEDS[5]; // C:0
-    shiftOutA[17] = lfLEDS[6]; // C:1
-    shiftOutA[18] = lfLEDS[7]; // C:2
-    shiftOutA[19] = lfLEDS[8]; // C:3      
-    shiftOutA[20] = lfLEDS[9]; // C:4      
-    shiftOutA[21] = lfLEDS[10]; // C:5      
-    shiftOutA[22] = oxLEDS[0]; // C:6      
-    shiftOutA[23] = oxLEDS[1]; // C:7      
-    shiftOutA[24] = oxLEDS[2]; // D:0      
-    shiftOutA[25] = oxLEDS[3]; // D:1      
+    shiftOutA[0] = ecLEDS[10]; // A:0
+    shiftOutA[1] = ecLEDS[9]; // A:1
+    shiftOutA[2] = ecLEDS[8]; // A:2
+    shiftOutA[3] = ecLEDS[7]; // A:3
+    shiftOutA[4] = ecLEDS[6]; // A:4
+    shiftOutA[5] = ecLEDS[5]; // A:5
+    shiftOutA[6] = ecLEDS[4]; // A:6
+    shiftOutA[7] = ecLEDS[3]; // A:7
+    shiftOutA[8] = ecLEDS[2]; // B:0
+    shiftOutA[9] = ecLEDS[1]; // B:1
+    shiftOutA[10] = mpLEDS[10]; // B:2
+    shiftOutA[11] = mpLEDS[9]; // B:3
+    shiftOutA[12] = mpLEDS[8]; // B:4
+    shiftOutA[13] = mpLEDS[7]; // B:5
+    shiftOutA[14] = mpLEDS[6]; // B:6
+    shiftOutA[15] = mpLEDS[5]; // B:7
+    shiftOutA[16] = mpLEDS[4]; // C:0
+    shiftOutA[17] = mpLEDS[3]; // C:1
+    shiftOutA[18] = mpLEDS[2]; // C:2
+    shiftOutA[19] = mpLEDS[1]; // C:3      
+    shiftOutA[20] = oxLEDS[10]; // C:4      
+    shiftOutA[21] = oxLEDS[9]; // C:5      
+    shiftOutA[22] = oxLEDS[8]; // C:6      
+    shiftOutA[23] = oxLEDS[7]; // C:7      
+    shiftOutA[24] = oxLEDS[6]; // D:0      
+    shiftOutA[25] = oxLEDS[5]; // D:1      
     shiftOutA[26] = oxLEDS[4]; // D:2      
-    shiftOutA[27] = oxLEDS[5]; // D:3      
-    shiftOutA[28] = oxLEDS[6]; // D:4      
-    shiftOutA[29] = oxLEDS[7]; // D:5      
-    shiftOutA[30] = oxLEDS[8]; // D:6      
-    shiftOutA[31] = oxLEDS[9]; // D:7      
-    shiftOutA[32] = oxLEDS[10]; // E:0      
-    shiftOutA[33] = mpLEDS[0]; // E:1      
-    shiftOutA[34] = mpLEDS[1]; // E:2      
-    shiftOutA[35] = mpLEDS[2]; // E:3      
-    shiftOutA[36] = mpLEDS[3]; // E:4      
-    shiftOutA[37] = mpLEDS[4]; // E:5      
-    shiftOutA[38] = mpLEDS[5]; // E:6      
-    shiftOutA[39] = mpLEDS[6]; // E:7      
-    shiftOutA[40] = mpLEDS[7]; // F:0      
-    shiftOutA[41] = mpLEDS[8]; // F:1      
-    shiftOutA[42] = mpLEDS[9]; // F:2      
-    shiftOutA[43] = mpLEDS[10]; // F:3      
-    shiftOutA[44] = ecLEDS[0]; // F:4      
-    shiftOutA[45] = ecLEDS[1]; // F:5      
-    shiftOutA[46] = ecLEDS[2]; // F:6      
-    shiftOutA[47] = ecLEDS[3]; // F:7      
-    shiftOutA[48] = ecLEDS[4]; // G:0      
-    shiftOutA[49] = ecLEDS[5]; // G:1      
-    shiftOutA[50] = ecLEDS[6]; // G:2      
-    shiftOutA[51] = ecLEDS[7]; // G:3      
-    shiftOutA[52] = ecLEDS[8]; // G:4      
-    shiftOutA[53] = ecLEDS[9]; // G:5      
-    shiftOutA[54] = ecLEDS[10]; // G:6      
+    shiftOutA[27] = oxLEDS[3]; // D:3      
+    shiftOutA[28] = oxLEDS[2]; // D:4      
+    shiftOutA[29] = oxLEDS[1]; // D:5      
+    shiftOutA[30] = lfLEDS[10]; // D:6      
+    shiftOutA[31] = lfLEDS[9]; // D:7      
+    shiftOutA[32] = lfLEDS[8]; // E:0      
+    shiftOutA[33] = lfLEDS[7]; // E:1      
+    shiftOutA[34] = lfLEDS[6]; // E:2      
+    shiftOutA[35] = lfLEDS[5]; // E:3      
+    shiftOutA[36] = lfLEDS[4]; // E:4      
+    shiftOutA[37] = lfLEDS[3]; // E:5      
+    shiftOutA[38] = lfLEDS[2]; // E:6      
+    shiftOutA[39] = lfLEDS[1]; // E:7      
+    shiftOutA[40] = sfLEDS[10]; // F:0      
+    shiftOutA[41] = sfLEDS[9]; // F:1      
+    shiftOutA[42] = sfLEDS[8]; // F:2      
+    shiftOutA[43] = sfLEDS[7]; // F:3      
+    shiftOutA[44] = sfLEDS[6]; // F:4      
+    shiftOutA[45] = sfLEDS[5]; // F:5      
+    shiftOutA[46] = sfLEDS[4]; // F:6      
+    shiftOutA[47] = sfLEDS[3]; // F:7      
+    shiftOutA[48] = sfLEDS[2]; // G:0      
+    shiftOutA[49] = sfLEDS[1]; // G:1      
+    shiftOutA[50] = ecLEDS[0]; // G:2      
+    shiftOutA[51] = mpLEDS[0]; // G:3      
+    shiftOutA[52] = oxLEDS[0]; // G:4      
+    shiftOutA[53] = lfLEDS[0]; // G:5      
+    shiftOutA[54] = sfLEDS[0]; // G:6      
     shiftOutA[55] = 0; // G:7      
-    shiftOutA[56] = 0; // H:0      
-    shiftOutA[57] = 0; // H:1      
-    shiftOutA[58] = 0; // H:2      
-    shiftOutA[59] = 0; // H:3      
-    shiftOutA[60] = 0; // H:4      
-    shiftOutA[61] = 0; // H:5      
-    shiftOutA[62] = 0; // H:6
-    shiftOutA[63] = 0; // H:7
+    // shiftOutA[56] = 0; // H:0      
+    // shiftOutA[57] = 0; // H:1      
+    // shiftOutA[58] = 0; // H:2      
+    // shiftOutA[59] = 0; // H:3      
+    // shiftOutA[60] = 0; // H:4      
+    // shiftOutA[61] = 0; // H:5      
+    // shiftOutA[62] = 0; // H:6
+    // shiftOutA[63] = 0; // H:7
 
     
 
@@ -1491,16 +1210,16 @@ void setOutputValues()
     shiftOutB[12] = throtLED[2]; // B:4
     shiftOutB[13] = throtLED[3]; // B:5
     shiftOutB[14] = throtLED[4]; // B:6
-    shiftOutB[15] = throtLED[5]; // B:7
-    shiftOutB[16] = throtLED[6]; // C:0
-    shiftOutB[17] = throtLED[7]; // C:1
-    shiftOutB[18] = throtLED[8]; // C:2
-    shiftOutB[19] = throtLED[9]; // C:3      
-    shiftOutB[20] = 0; // C:4      
-    shiftOutB[21] = 0; // C:5      
-    shiftOutB[22] = 0; // C:6      
-    shiftOutB[23] = 0; // C:7      
-    shiftOutB[24] = 0; // D:0      
+    shiftOutB[15] = stageButtonLED; // B:7
+    shiftOutB[16] = abortButtonLED; // C:0
+    shiftOutB[17] = sasToggleState; // C:1
+    shiftOutB[18] = !sasToggleState; // C:2
+    shiftOutB[19] = rcsToggleState; // C:3      
+    shiftOutB[20] = !rcsToggleState; // C:4      
+    shiftOutB[21] = rocketMode; // C:5      
+    shiftOutB[22] = planeMode; // C:6      
+    shiftOutB[23] = camRot; // C:7      
+    shiftOutB[24] = !camRot; // D:0      
     shiftOutB[25] = 0; // D:1      
     shiftOutB[26] = 0; // D:2      
     shiftOutB[27] = 0; // D:3      
@@ -1508,302 +1227,125 @@ void setOutputValues()
     shiftOutB[29] = 0; // D:5      
     shiftOutB[30] = 0; // D:6      
     shiftOutB[31] = 0; // D:7      
-    shiftOutB[32] = 0; // E:0      
-    shiftOutB[33] = 0; // E:1      
-    shiftOutB[34] = 0; // E:2      
-    shiftOutB[35] = 0; // E:3      
-    shiftOutB[36] = 0; // E:4      
-    shiftOutB[37] = 0; // E:5      
-    shiftOutB[38] = 0; // E:6      
-    shiftOutB[39] = 0; // E:7      
-    shiftOutB[40] = 0; // F:0      
-    shiftOutB[41] = 0; // F:1      
-    shiftOutB[42] = 0; // F:2      
-    shiftOutB[43] = 0; // F:3      
-    shiftOutB[44] = 0; // F:4      
-    shiftOutB[45] = 0; // F:5      
-    shiftOutB[46] = 0; // F:6      
-    shiftOutB[47] = 0; // F:7      
-    shiftOutB[48] = 0; // G:0      
-    shiftOutB[49] = 0; // G:1      
-    shiftOutB[50] = 0; // G:2      
-    shiftOutB[51] = 0; // G:3      
-    shiftOutB[52] = 0; // G:4      
-    shiftOutB[53] = 0; // G:5      
-    shiftOutB[54] = 0; // G:6      
-    shiftOutB[55] = 0; // G:7      
-    shiftOutB[56] = 0; // H:0      
-    shiftOutB[57] = 0; // H:1      
-    shiftOutB[58] = 0; // H:2      
-    shiftOutB[59] = 0; // H:3      
-    shiftOutB[60] = 0; // H:4      
-    shiftOutB[61] = 0; // H:5      
-    shiftOutB[62] = 0; // H:6
-    shiftOutB[63] = 0; // H:7
+    // shiftOutB[32] = 0; // E:0      
+    // shiftOutB[33] = 0; // E:1      
+    // shiftOutB[34] = 0; // E:2      
+    // shiftOutB[35] = 0; // E:3      
+    // shiftOutB[36] = 0; // E:4      
+    // shiftOutB[37] = 0; // E:5      
+    // shiftOutB[38] = 0; // E:6      
+    // shiftOutB[39] = 0; // E:7      
+    // shiftOutB[40] = 0; // F:0      
+    // shiftOutB[41] = 0; // F:1      
+    // shiftOutB[42] = 0; // F:2      
+    // shiftOutB[43] = 0; // F:3      
+    // shiftOutB[44] = 0; // F:4      
+    // shiftOutB[45] = 0; // F:5      
+    // shiftOutB[46] = 0; // F:6      
+    // shiftOutB[47] = 0; // F:7      
+    // shiftOutB[48] = 0; // G:0      
+    // shiftOutB[49] = 0; // G:1      
+    // shiftOutB[50] = 0; // G:2      
+    // shiftOutB[51] = 0; // G:3      
+    // shiftOutB[52] = 0; // G:4      
+    // shiftOutB[53] = 0; // G:5      
+    // shiftOutB[54] = 0; // G:6      
+    // shiftOutB[55] = 0; // G:7      
+    // shiftOutB[56] = 0; // H:0      
+    // shiftOutB[57] = 0; // H:1      
+    // shiftOutB[58] = 0; // H:2      
+    // shiftOutB[59] = 0; // H:3      
+    // shiftOutB[60] = 0; // H:4      
+    // shiftOutB[61] = 0; // H:5      
+    // shiftOutB[62] = 0; // H:6
+    // shiftOutB[63] = 0; // H:7
     
-    /* Third set of shift registers no longer used
-    // Shift register out C
-    shiftOutC[0] = 0; // A:0
-    shiftOutC[1] = 0; // A:1
-    shiftOutC[2] = 0; // A:2
-    shiftOutC[3] = 0; // A:3
-    shiftOutC[4] = 0; // A:4
-    shiftOutC[5] = 0; // A:5
-    shiftOutC[6] = 0; // A:6
-    shiftOutC[7] = 0; // A:7
-    shiftOutC[8] = 0; // B:0
-    shiftOutC[9] = 0; // B:1
-    shiftOutC[10] = 0; // B:2
-    shiftOutC[11] = 0; // B:3
-    shiftOutC[12] = 0; // B:4
-    shiftOutC[13] = 0; // B:5
-    shiftOutC[14] = 0; // B:6
-    shiftOutC[15] = 0; // B:7
-    shiftOutC[16] = 0; // C:0
-    shiftOutC[17] = 0; // C:1
-    shiftOutC[18] = 0; // C:2
-    shiftOutC[19] = 0; // C:3      
-    shiftOutC[20] = 0; // C:4      
-    shiftOutC[21] = 0; // C:5      
-    shiftOutC[22] = 0; // C:6      
-    shiftOutC[23] = 0; // C:7      
-    shiftOutC[24] = 0; // D:0      
-    shiftOutC[25] = 0; // D:1      
-    shiftOutC[26] = 0; // D:2      
-    shiftOutC[27] = 0; // D:3      
-    shiftOutC[28] = 0; // D:4      
-    shiftOutC[29] = 0; // D:5      
-    shiftOutC[30] = 0; // D:6      
-    shiftOutC[31] = 0; // D:7      
-    shiftOutC[32] = 0; // E:0      
-    shiftOutC[33] = 0; // E:1      
-    shiftOutC[34] = 0; // E:2      
-    shiftOutC[35] = 0; // E:3      
-    shiftOutC[36] = 0; // E:4      
-    shiftOutC[37] = 0; // E:5      
-    shiftOutC[38] = 0; // E:6      
-    shiftOutC[39] = 0; // E:7      
-    shiftOutC[40] = 0; // F:0      
-    shiftOutC[41] = 0; // F:1      
-    shiftOutC[42] = 0; // F:2      
-    shiftOutC[43] = 0; // F:3      
-    shiftOutC[44] = 0; // F:4      
-    shiftOutC[45] = 0; // F:5      
-    shiftOutC[46] = 0; // F:6      
-    shiftOutC[47] = 0; // F:7      
-    shiftOutC[48] = 0; // G:0      
-    shiftOutC[49] = 0; // G:1      
-    shiftOutC[50] = 0; // G:2      
-    shiftOutC[51] = 0; // G:3      
-    shiftOutC[52] = 0; // G:4      
-    shiftOutC[53] = 0; // G:5      
-    shiftOutC[54] = 0; // G:6      
-    shiftOutC[55] = 0; // G:7      
-    shiftOutC[56] = 0; // H:0      
-    shiftOutC[57] = 0; // H:1      
-    shiftOutC[58] = 0; // H:2      
-    shiftOutC[59] = 0; // H:3      
-    shiftOutC[60] = 0; // H:4      
-    shiftOutC[61] = 0; // H:5      
-    shiftOutC[62] = 0; // H:6
-    shiftOutC[63] = 0; // H:7
-    */
-
 }
 
-void setInputValues()
-{
-    // Shift registers in A
-    sasButtons[0] = shiftInA.state(0); // A:0
-    sasButtons[1] = shiftInA.state(1); // A:1
-    sasButtons[2] = shiftInA.state(2); // A:2
-    sasButtons[3] = shiftInA.state(3); // A:3
-    sasButtons[4] = shiftInA.state(4); // A:4
-    sasButtons[5] = shiftInA.state(5); // A:5
-    sasButtons[6] = shiftInA.state(6); // A:6
-    sasButtons[7] = shiftInA.state(7); // A:7
-    sasButtons[8] = shiftInA.state(8); // B:0
-    sasButtons[9] = shiftInA.state(9); // B:1
-    // infoModes[10] = (bool)shiftInA[10]; // B:2
-    // infoModes[11] = (bool)shiftInA[11]; // B:3
-    // dirModes[0] = (bool)shiftInA[12]; // B:4
-    // dirModes[1] = (bool)shiftInA[13]; // B:5
-    // dirModes[2] = (bool)shiftInA[14]; // B:6
-    // dirModes[3] = (bool)shiftInA[15]; // B:7
-    // dirModes[4] = (bool)shiftInA[16]; // C:0
-    // dirModes[5] = (bool)shiftInA[17]; // C:1
-    // dirModes[6] = (bool)shiftInA[18]; // C:2
-    // dirModes[7] = (bool)shiftInA[19]; // C:3
-    // dirModes[8] = (bool)shiftInA[20]; // C:4
-    // dirModes[9] = (bool)shiftInA[21]; // C:5
-    // dirModes[10] = (bool)shiftInA[22]; // C:6
-    // dirModes[11] = (bool)shiftInA[23]; // C:7
-    // warnButtons[0] = (bool)shiftInA[24]; // D:0
-    // warnButtons[1] = (bool)shiftInA[25]; // D:1
-    // warnButtons[2] = (bool)shiftInA[26]; // D:2
-    // warnButtons[3] = (bool)shiftInA[27]; // D:3
-    // warnButtons[4] = (bool)shiftInA[28]; // D:4
-    // warnButtons[5] = (bool)shiftInA[29]; // D:5
-    // warnButtons[6] = (bool)shiftInA[30]; // D:6
-    // warnButtons[7] = (bool)shiftInA[31]; // D:7
-    // warnButtons[8] = (bool)shiftInA[32]; // E:0
-    // warnButtons[9] = (bool)shiftInA[33]; // E:1
-    // agButtons[0] = (bool)shiftInA[34]; // E:2
-    // agButtons[1] = (bool)shiftInA[35]; // E:3
-    // agButtons[2] = (bool)shiftInA[36]; // E:4
-    // agButtons[3] = (bool)shiftInA[37]; // E:5
-    // agButtons[4] = (bool)shiftInA[38]; // E:6
-    // agButtons[5] = (bool)shiftInA[39]; // E:7
-    // agButtons[6] = (bool)shiftInA[40]; // F:0
-    // agButtons[7] = (bool)shiftInA[41]; // F:1
-    // agButtons[8] = (bool)shiftInA[42]; // F:2
-    // agButtons[9] = (bool)shiftInA[43]; // F:3
-    // dockingModeSwitch = (bool)shiftInA[44]; // F:4
-    // percisionModeSwitch = (bool)shiftInA[45]; // F:5
-    // gearSwitch = (bool)shiftInA[46]; // F:6
-    // lightsSwitch = (bool)shiftInA[47]; // F:7
-    // brakeSwitch = (bool)shiftInA[48]; // G:0
-    // sasSwitch = (bool)shiftInA[49]; // G:1
-    // rcsSwitch = (bool)shiftInA[50]; // G:2
-    // throttleLockSwitch = (bool)shiftInA[51]; // G:3
-    // setTrimTranslationButton = (bool)shiftInA[52]; // G:4
-    // resetTrimTranslationButton = (bool)shiftInA[53]; // G:5
-    // setTrimRotationButton = (bool)shiftInA[54]; // G:6
-    // resetTrimRotationButton = (bool)shiftInA[55]; // G:7
-    // sasButtons[0] = (bool)shiftInA[56]; // H:0
-    // sasButtons[1] = (bool)shiftInA[57]; // H:1
-    // sasButtons[2] = (bool)shiftInA[58]; // H:2
-    // sasButtons[3] = (bool)shiftInA[59]; // H:3
-    // sasButtons[4] = (bool)shiftInA[60]; // H:4
-    // sasButtons[5] = (bool)shiftInA[61]; // H:5
-    // sasButtons[6] = (bool)shiftInA[62]; // H:6
-    // sasButtons[7] = (bool)shiftInA[63]; // H:7
-    // // Shift registers in B
-    // sasButtons[8] = (bool)shiftInB[0]; // A:0
-    // sasButtons[9] = (bool)shiftInB[1]; // A:1
-    // warpLockSwitch = (bool)shiftInB[2]; // A:2
-    // pauseButton = (bool)shiftInB[3]; // A:3
-    // cancelWarpButton = (bool)shiftInB[4]; // A:4
-    // enablePhysWarpSwitch = (bool)shiftInB[5]; // A:5
-    // decreaseWarpButton = (bool)shiftInB[6]; // A:6
-    // increaseWarpButton = (bool)shiftInB[7]; // A:7
-    // extraButton2 = (bool)shiftInB[8]; // B:0
-    // cycleFocusButton = (bool)shiftInB[9]; // B:1
-    // hideUIButton = (bool)shiftInB[10]; // B:2
-    // screenshotButton = (bool)shiftInB[11]; // B:3
-    // mapFlightSwitch = (bool)shiftInB[12]; // B:4
-    // extIvaSwitch = (bool)shiftInB[13]; // B:5
-    // cycleCamModeButton = (bool)shiftInB[14]; // B:6
-    // resetCamButton = (bool)shiftInB[15]; // B:7
-    // // More values (non-shift register)
-
-}
-
-// void getShiftIn(int enableA, int dataA, int clockA, int latchA)
+// void setInputValues()
 // {
-    
-//     // Pulse to A
-//     digitalWrite(clockA, HIGH);
-//     digitalWrite(latchA, LOW);
-//     delayMicroseconds(5);
-//     digitalWrite(latchA, HIGH);
-//     delayMicroseconds(5);
-//     byte inputA[4];
-//     // Get input A data
-    
-//     digitalWrite(enableA, LOW);
-//     inputA[0] = shiftIn(dataA, clockA, MSBFIRST);
-//     inputA[1] = shiftIn(dataA, clockA, MSBFIRST);
-//     inputA[2] = shiftIn(dataA, clockA, MSBFIRST);
-//     inputA[3] = shiftIn(dataA, clockA, MSBFIRST);
-//     mySimpit.printToKSP("InputA : 0 thru 3");
-//     mySimpit.printToKSP(String((int)inputA[0]));
-//     mySimpit.printToKSP(String((int)inputA[1]));
-//     mySimpit.printToKSP(String((int)inputA[2]));
-//     mySimpit.printToKSP(String((int)inputA[3]));
-//     // inputA[4] = shiftIn(dataA, clockA, MSBFIRST);
-//     // inputA[5] = shiftIn(dataA, clockA, MSBFIRST);
-//     // inputA[6] = shiftIn(dataA, clockA, MSBFIRST);
-//     // inputA[7] = shiftIn(dataA, clockA, MSBFIRST);
-//     digitalWrite(enableA, HIGH);
-    
-//     for (int i = 0; i < 16; i++)
-//     {
-//         if (i < 8){
-//             if (1 == bitRead(inputA[0], i)){
-//               shiftInA[i] = 1;
-//             }
-                
-//         // } else if (i < 16){
-//         //     if (1 == bitRead(inputA[1], i - 8)){
-//         //       shiftInA[i] = 1;
-//         //     }
-                
-//         // } else if (i < 24){
-//         //     if (1 == bitRead(inputA[2], i - 16)){
-//         //       shiftInA[i] = 1;
-//         //     }
+//     // Shift registers in A
+//     sasButtons[0] = shiftInA.state(0); // A:0
+//     sasButtons[1] = shiftInA.state(1); // A:1
+//     sasButtons[2] = shiftInA.state(2); // A:2
+//     sasButtons[3] = shiftInA.state(3); // A:3
+//     sasButtons[4] = shiftInA.state(4); // A:4
+//     sasButtons[5] = shiftInA.state(5); // A:5
+//     sasButtons[6] = shiftInA.state(6); // A:6
+//     sasButtons[7] = shiftInA.state(7); // A:7
+//     sasButtons[8] = shiftInA.state(8); // B:0
+//     sasButtons[9] = shiftInA.state(9); // B:1
+//     // infoModes[10] = (bool)shiftInA[10]; // B:2
+//     // infoModes[11] = (bool)shiftInA[11]; // B:3
+//     // dirModes[0] = (bool)shiftInA[12]; // B:4
+//     // dirModes[1] = (bool)shiftInA[13]; // B:5
+//     // dirModes[2] = (bool)shiftInA[14]; // B:6
+//     // dirModes[3] = (bool)shiftInA[15]; // B:7
+//     // dirModes[4] = (bool)shiftInA[16]; // C:0
+//     // dirModes[5] = (bool)shiftInA[17]; // C:1
+//     // dirModes[6] = (bool)shiftInA[18]; // C:2
+//     // dirModes[7] = (bool)shiftInA[19]; // C:3
+//     // dirModes[8] = (bool)shiftInA[20]; // C:4
+//     // dirModes[9] = (bool)shiftInA[21]; // C:5
+//     // dirModes[10] = (bool)shiftInA[22]; // C:6
+//     // dirModes[11] = (bool)shiftInA[23]; // C:7
+//     // warnButtons[0] = (bool)shiftInA[24]; // D:0
+//     // warnButtons[1] = (bool)shiftInA[25]; // D:1
+//     // warnButtons[2] = (bool)shiftInA[26]; // D:2
+//     // warnButtons[3] = (bool)shiftInA[27]; // D:3
+//     // warnButtons[4] = (bool)shiftInA[28]; // D:4
+//     // warnButtons[5] = (bool)shiftInA[29]; // D:5
+//     // warnButtons[6] = (bool)shiftInA[30]; // D:6
+//     // warnButtons[7] = (bool)shiftInA[31]; // D:7
+//     // warnButtons[8] = (bool)shiftInA[32]; // E:0
+//     // warnButtons[9] = (bool)shiftInA[33]; // E:1
+//     // agButtons[0] = (bool)shiftInA[34]; // E:2
+//     // agButtons[1] = (bool)shiftInA[35]; // E:3
+//     // agButtons[2] = (bool)shiftInA[36]; // E:4
+//     // agButtons[3] = (bool)shiftInA[37]; // E:5
+//     // agButtons[4] = (bool)shiftInA[38]; // E:6
+//     // agButtons[5] = (bool)shiftInA[39]; // E:7
+//     // agButtons[6] = (bool)shiftInA[40]; // F:0
+//     // agButtons[7] = (bool)shiftInA[41]; // F:1
+//     // agButtons[8] = (bool)shiftInA[42]; // F:2
+//     // agButtons[9] = (bool)shiftInA[43]; // F:3
+//     // dockingModeSwitch = (bool)shiftInA[44]; // F:4
+//     // percisionModeSwitch = (bool)shiftInA[45]; // F:5
+//     // gearSwitch = (bool)shiftInA[46]; // F:6
+//     // lightsSwitch = (bool)shiftInA[47]; // F:7
+//     // brakeSwitch = (bool)shiftInA[48]; // G:0
+//     // sasSwitch = (bool)shiftInA[49]; // G:1
+//     // rcsSwitch = (bool)shiftInA[50]; // G:2
+//     // throttleLockSwitch = (bool)shiftInA[51]; // G:3
+//     // setTrimTranslationButton = (bool)shiftInA[52]; // G:4
+//     // resetTrimTranslationButton = (bool)shiftInA[53]; // G:5
+//     // setTrimRotationButton = (bool)shiftInA[54]; // G:6
+//     // resetTrimRotationButton = (bool)shiftInA[55]; // G:7
+//     // sasButtons[0] = (bool)shiftInA[56]; // H:0
+//     // sasButtons[1] = (bool)shiftInA[57]; // H:1
+//     // sasButtons[2] = (bool)shiftInA[58]; // H:2
+//     // sasButtons[3] = (bool)shiftInA[59]; // H:3
+//     // sasButtons[4] = (bool)shiftInA[60]; // H:4
+//     // sasButtons[5] = (bool)shiftInA[61]; // H:5
+//     // sasButtons[6] = (bool)shiftInA[62]; // H:6
+//     // sasButtons[7] = (bool)shiftInA[63]; // H:7
+//     // // Shift registers in B
+//     // sasButtons[8] = (bool)shiftInB[0]; // A:0
+//     // sasButtons[9] = (bool)shiftInB[1]; // A:1
+//     // warpLockSwitch = (bool)shiftInB[2]; // A:2
+//     // pauseButton = (bool)shiftInB[3]; // A:3
+//     // cancelWarpButton = (bool)shiftInB[4]; // A:4
+//     // enablePhysWarpSwitch = (bool)shiftInB[5]; // A:5
+//     // decreaseWarpButton = (bool)shiftInB[6]; // A:6
+//     // increaseWarpButton = (bool)shiftInB[7]; // A:7
+//     // extraButton2 = (bool)shiftInB[8]; // B:0
+//     // cycleFocusButton = (bool)shiftInB[9]; // B:1
+//     // hideUIButton = (bool)shiftInB[10]; // B:2
+//     // screenshotButton = (bool)shiftInB[11]; // B:3
+//     // mapFlightSwitch = (bool)shiftInB[12]; // B:4
+//     // extIvaSwitch = (bool)shiftInB[13]; // B:5
+//     // cycleCamModeButton = (bool)shiftInB[14]; // B:6
+//     // resetCamButton = (bool)shiftInB[15]; // B:7
+//     // // More values (non-shift register)
 
-//         } else {
-//             if (1 == bitRead(inputA[1], i - 8)){
-//               shiftInA[i] = 1;
-//             }
-
-//         }
-            
-        
-            
-        
-            
-                
-//         // else if (i < 32)
-//         //     if (1 == bitRead(inputA[3], i - 24))
-//         //         shiftInA[i] = 1;
-//         // else if (i < 40)
-//         //     if (1 == bitRead(inputA[4], i - 32))
-//         //         shiftInA[i] = 1;
-//         // else if (i < 48)
-//         //     if (1 == bitRead(inputA[5], i - 40))
-//         //         shiftInA[i] = 1;
-//         // else if (i < 56)
-//         //     if (1 == bitRead(inputA[6], i - 48))
-//         //         shiftInA[i] = 1;
-        
-            
-                
-//     }
-   
-// }
-
-// void checkSASButtons()
-// {   
-//     // if(changeState == false){
-//     //   for (int i = 0; i < 10; i++){
-//     //     sasButtonOld[i] = sasButtons[i];
-//     //     sasButtonChange[i] = 0;
-//     //   }
-//     //   changeState = true;
-//     // }
-
-//     for (int i = 0; i < 10; i++){
-//       if((sasButtons[i] != sasButtonOld[i]) && sasButtons[i]){
-//         sasButtonChange[i] = true;
-//         sasButtonOld[i] = sasButtons[i];
-//       } else {
-//         sasButtonChange[i] = false;
-//         sasButtonOld[i] = sasButtons[i];
-//       }
-//     }
-    
-//     // sasButtonChange[0] = !(sasButtonOld[0] == sasButtons[0]);
-//     // sasButtonChange[1] = !(sasButtonOld[1] == sasButtons[1]);
-//     // sasButtonChange[2] = !(sasButtonOld[2] == sasButtons[2]);
-//     // sasButtonChange[3] = !(sasButtonOld[3] == sasButtons[3]);
-//     // sasButtonChange[4] = !(sasButtonOld[4] == sasButtons[4]);
-//     // sasButtonChange[5] = !(sasButtonOld[5] == sasButtons[5]);
-//     // sasButtonChange[6] = !(sasButtonOld[6] == sasButtons[6]);
-//     // sasButtonChange[7] = !(sasButtonOld[7] == sasButtons[7]);
-//     // sasButtonChange[8] = !(sasButtonOld[8] == sasButtons[8]);
-//     // sasButtonChange[9] = !(sasButtonOld[9] == sasButtons[9]);
-    
 // }
