@@ -2,28 +2,29 @@
 #include <ShiftIn.h>
 
 bool joystickDebug = false;
+bool debug = false;
 int cameraSensitivity = 100;
 
 //Shift Register Declarations
 
 //SHIFT OUT A (7 registers for output)
-const int SHIFT_OUT_A_DATA = 2;
-const int SHIFT_OUT_A_CLOCK = 3;
-const int SHIFT_OUT_A_LATCH = 4;
+const int SHIFT_OUT_A_DATA = 5;
+const int SHIFT_OUT_A_CLOCK = 6;
+const int SHIFT_OUT_A_LATCH = 7;
 bool shiftOutA[56];
 int outputA;
 
 //SHIFT OUT B (4 registers for output)
-const int SHIFT_OUT_B_DATA = 5;
-const int SHIFT_OUT_B_CLOCK = 6;
-const int SHIFT_OUT_B_LATCH = 7;
+const int SHIFT_OUT_B_DATA = 2;
+const int SHIFT_OUT_B_CLOCK = 3;
+const int SHIFT_OUT_B_LATCH = 4;
 bool shiftOutB[32];
 int outputB;
 
 //SHIFT IN A (8 registers)
-const int SHIFT_IN_A_ENABLE = 8;
-const int SHIFT_IN_A_DATA = 9;
-const int SHIFT_IN_A_CLOCK = 10;
+const int SHIFT_IN_A_ENABLE = 10;
+const int SHIFT_IN_A_DATA = 8;
+const int SHIFT_IN_A_CLOCK = 9;
 const int SHIFT_IN_A_LATCH = 11;
 
 bool sasButtons[10];
@@ -35,9 +36,16 @@ bool rcsToggleState;
 
 byte sasCurrentMode;
 
+timewarpMessage tw_msg;
+
 //LED Definitions
 bool abortButtonLED = false;
 bool stageButtonLED = false;
+bool lightsLED = false;
+bool gearLED = false;
+bool brakesLED = false;
+bool CAG01_LED = false;
+bool CAG02_LED = false;
 
 //Button state bools
 bool stageArmed;
@@ -61,7 +69,7 @@ long stageSavedTime = 0;
 [8] SAS Target
 [9] SAS Anti-Target
 [10] Fuel Mode = Overall Total (TRUE) or Stage Total (FALSE)
-[11] 
+[11] -
 [12] Escape key for Pause
 [13] F5 key for Quick Save
 [14] F9 key for Quick Load
@@ -74,46 +82,46 @@ long stageSavedTime = 0;
 [21] RCS Toggle
 [22] Rocket Mode vs Plane Mode (Plane Mode = HIGH ; Rocket Mode = LOW)
 [23] Camera Rotation
-[24] 
-[25] 
-[26] 
-[27] 
-[28] 
-[29] 
-[30] 
-[31] 
-[32] 
-[33] 
-[34] 
-[35] 
-[36] 
-[37] 
-[38] 
-[39] 
-[40] 
-[41] 
-[42] 
-[43] 
-[44] 
-[45] 
-[46] 
-[47] 
-[48] 
-[49] 
-[50] 
-[51] 
-[52] 
-[53] 
-[54] 
-[55] 
-[56] 
-[57] 
-[58] 
-[59] 
-[60] 
-[61] 
-[62] 
-[63] 
+[24] Timewarp Stop
+[25] Timewarp to Next Burn (-10 seconds)
+[26] Timewarp Down
+[27] Timewarp Up
+[28] Map
+[29] View
+[30] (Empty)
+[31] (Empty)
+[32] -
+[33] -
+[34] -
+[35] -
+[36] -
+[37] -
+[38] -
+[39] -
+[40] -
+[41] -
+[42] -
+[43] -
+[44] -
+[45] -
+[46] -
+[47] -
+[48] Lights
+[49] Gear
+[50] Brakes
+[51] -
+[52] Solar (CAG02)
+[53] AG3
+[54] AG4
+[55] AG5
+[56] AG6
+[57] AG7
+[58] AG8
+[59] AG9
+[60] AG10
+[61] AG11
+[62] AG12
+[63] Ladder (CAG01)
 
 */
 ShiftIn<8> shiftInA;
@@ -284,7 +292,7 @@ void setup() {
   pinMode(SHIFT_OUT_B_CLOCK, OUTPUT);
   pinMode(SHIFT_OUT_B_LATCH, OUTPUT);
 
-if(!joystickDebug){
+if(!joystickDebug && !debug){
   while (!mySimpit.init()) {
    delay(100);
   }
@@ -316,6 +324,7 @@ if(!joystickDebug){
   mySimpit.registerChannel(TIMEWARP_MESSAGE);
   mySimpit.registerChannel(CAMERA_CONTROL_MODE);
   mySimpit.registerChannel(CAMERA_ROTATION_MESSAGE);
+  mySimpit.registerChannel(CAGSTATUS_MESSAGE);
 
 //Initialize bools for various LED states
   shiftInA.getCurrent();
@@ -328,7 +337,11 @@ if(!joystickDebug){
   planeMode = shiftInA.state(22);
   rocketMode = !shiftInA.state(22);
   camRot = shiftInA.state(23);
-
+  lightsLED = shiftInA.state(48);
+  gearLED = shiftInA.state(49);
+  brakesLED = shiftInA.state(50);
+  CAG01_LED = shiftInA.state(63);
+  CAG02_LED = shiftInA.state(52);
 
 
   
@@ -342,6 +355,7 @@ void loop() {
 
 analogReference(EXTERNAL);
 int throtRAW = analogRead(throttle);
+
 
 int analogInput = analogRead(rX);
 analogInput = analogRead(rX); 
@@ -368,11 +382,21 @@ if(rocketMode){
 
 analogInput = analogRead(rY);
 analogInput = analogRead(rY);
+
+if(rocketMode){
   if((deadzoneCenter_rY - deadzone) < analogInput && analogInput < (deadzoneCenter_rY + deadzone)){
     pitch = 0;
   } else {
     pitch = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //y
   }
+} else if(planeMode){
+    if((deadzoneCenter_rY - deadzone) < analogInput && analogInput < (deadzoneCenter_rY + deadzone)){
+    pitch = 0;
+  } else {
+    pitch = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX-1),INT16_MIN,INT16_MAX); //y
+    pitch = -pitch; //invert
+  }
+}
 
 analogInput = analogRead(rZ);
 analogInput = analogRead(rZ);
@@ -487,27 +511,27 @@ if(rocketMode && !planeMode){
 }
 
 if(joystickDebug){
-  Serial.println("tX =");
+  Serial.print("tX =");
   analogRead(tX);
     Serial.println(String(analogRead(tX)));
     delay(50);
-  Serial.println("tY ="); 
+  Serial.print("tY ="); 
   analogRead(tY);
     Serial.println(String(analogRead(tY)));
         delay(50);
-  Serial.println("tZ ="); 
+  Serial.print("tZ ="); 
   analogRead(tZ);
   Serial.println(String(analogRead(tZ)));
       delay(50);
-    Serial.println("rX =");
+    Serial.print("rX =");
     analogRead(rX);
     Serial.println(String(analogRead(rX)));
         delay(50);
-  Serial.println("rY ="); 
+  Serial.print("rY ="); 
   analogRead(rY);
     Serial.println(String(analogRead(rY)));
         delay(50);
-  Serial.println("rZ ="); 
+  Serial.print("rZ ="); 
   analogRead(rZ);
   Serial.println(String(analogRead(rZ)));
       delay(50);
@@ -526,13 +550,11 @@ if(joystickDebug){
 
   mySimpit.send(THROTTLE_MESSAGE, throttleMsg);
 
-  for (int i = 0; i < 5; i++){
-    if(throt >= i*8190){
-      throtLED[i] = 1;
-    } else {
-      throtLED[i] = 0;
-    }
-  }
+throtLED[0] = 1;
+if (throtRAW > 255){throtLED[1] = 1;}else{throtLED[1] = 0;}
+if (throtRAW > 512){throtLED[2] = 1;}else{throtLED[2] = 0;}
+if (throtRAW > 765){throtLED[3] = 1;}else{throtLED[3] = 0;}
+if (throtRAW > 1020){throtLED[4] = 1;}else{throtLED[4] = 0;}
 
 if(shiftInA.update()){
   
@@ -695,6 +717,139 @@ if(shiftInA.update()){
     camRot = false;
   }
 
+  if(shiftInA.pressed(24)){
+    tw_msg.command = TIMEWARP_CANCEL_AUTOWARP;
+    mySimpit.send(TIMEWARP_MESSAGE,tw_msg);
+  } 
+
+  if(shiftInA.pressed(25)){
+    timewarpToMessage twTo_msg(TIMEWARP_TO_NEXT_BURN,-10);
+    mySimpit.send(TIMEWARP_MESSAGE,twTo_msg);
+  } 
+
+  if(shiftInA.pressed(26)){
+    tw_msg.command = TIMEWARP_DOWN;
+    mySimpit.send(TIMEWARP_MESSAGE,tw_msg);
+  }
+
+  if(shiftInA.pressed(27)){
+    tw_msg.command = TIMEWARP_UP;
+    mySimpit.send(TIMEWARP_MESSAGE,tw_msg);
+  }
+
+  if(shiftInA.pressed(28)){
+    keyboardEmulatorMessage keyMsg(0x4D);
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // M = 0x4D
+  } 
+
+  if(shiftInA.pressed(29)){
+    keyboardEmulatorMessage keyMsg(0x56);
+    mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // V = 0x56
+  } 
+
+  if(shiftInA.pressed(30)){
+    //keyboardEmulatorMessage keyMsg(0x56);
+    //mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // V = 0x56
+  } 
+
+  if(shiftInA.pressed(31)){
+    //keyboardEmulatorMessage keyMsg(0x56);
+    //mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
+    // V = 0x56
+  } 
+
+  if(shiftInA.state(48) && shiftInA.pressed(48)){
+    lightsLED = true;
+    mySimpit.activateAction(LIGHT_ACTION);
+  }
+
+  if(shiftInA.released(48) && !shiftInA.state(48)){
+    lightsLED = false;
+    mySimpit.deactivateAction(LIGHT_ACTION);
+  }  
+
+  if(shiftInA.state(49) && shiftInA.pressed(49)){
+    gearLED = true;
+    mySimpit.activateAction(GEAR_ACTION);
+  }
+
+  if(shiftInA.released(49) && !shiftInA.state(49)){
+    gearLED = false;
+    mySimpit.deactivateAction(GEAR_ACTION);
+  }  
+
+  if(shiftInA.state(50) && shiftInA.pressed(50)){
+    brakesLED = true;
+    mySimpit.activateAction(BRAKES_ACTION);
+  }
+
+  if(shiftInA.released(50) && !shiftInA.state(50)){
+    brakesLED = false;
+    mySimpit.deactivateAction(BRAKES_ACTION);
+  }  
+
+  if(shiftInA.state(63) && shiftInA.pressed(63)){
+    CAG01_LED = true;
+    mySimpit.activateCAG(1);
+  }
+
+  if(shiftInA.released(63) && !shiftInA.state(63)){
+    CAG01_LED = false;
+    mySimpit.deactivateCAG(1);
+  }  
+
+  if(shiftInA.state(52) && shiftInA.pressed(52)){
+    CAG02_LED = true;
+    mySimpit.activateCAG(2);
+  }
+
+  if(shiftInA.released(52) && !shiftInA.state(52)){
+    CAG02_LED = false;
+    mySimpit.deactivateCAG(2);
+  }  
+
+  if(shiftInA.pressed(53)){
+    mySimpit.toggleCAG(3);
+  }  
+
+  if(shiftInA.pressed(54)){
+    mySimpit.toggleCAG(4);
+  } 
+
+  if(shiftInA.pressed(55)){
+    mySimpit.toggleCAG(5);
+  } 
+
+  if(shiftInA.pressed(56)){
+    mySimpit.toggleCAG(6);
+  } 
+
+  if(shiftInA.pressed(57)){
+    mySimpit.toggleCAG(7);
+  } 
+
+  if(shiftInA.pressed(58)){
+    mySimpit.toggleCAG(8);
+  } 
+
+  if(shiftInA.pressed(59)){
+    mySimpit.toggleCAG(9);
+  } 
+
+  if(shiftInA.pressed(60)){
+    mySimpit.toggleCAG(10);
+  } 
+
+  if(shiftInA.pressed(61)){
+    mySimpit.toggleCAG(11);
+  } 
+
+  if(shiftInA.pressed(62)){
+    mySimpit.toggleCAG(12);
+  }   
 
 }
 
@@ -1195,16 +1350,16 @@ void setOutputValues()
     
 
     // Shift register out B
-    shiftOutB[0] = sasModeLEDS[0]; // A:0
-    shiftOutB[1] = sasModeLEDS[1]; // A:1
-    shiftOutB[2] = sasModeLEDS[2]; // A:2
-    shiftOutB[3] = sasModeLEDS[3]; // A:3
-    shiftOutB[4] = sasModeLEDS[4]; // A:4
-    shiftOutB[5] = sasModeLEDS[5]; // A:5
-    shiftOutB[6] = sasModeLEDS[6]; // A:6
-    shiftOutB[7] = sasModeLEDS[7]; // A:7
-    shiftOutB[8] = sasModeLEDS[8]; // B:0
-    shiftOutB[9] = sasModeLEDS[9]; // B:1
+    shiftOutB[0] = sasModeLEDS[1]; // A:0
+    shiftOutB[1] = sasModeLEDS[0]; // A:1
+    shiftOutB[2] = sasModeLEDS[3]; // A:2
+    shiftOutB[3] = sasModeLEDS[2]; // A:3
+    shiftOutB[4] = sasModeLEDS[5]; // A:4
+    shiftOutB[5] = sasModeLEDS[4]; // A:5
+    shiftOutB[6] = sasModeLEDS[7]; // A:6
+    shiftOutB[7] = sasModeLEDS[6]; // A:7
+    shiftOutB[8] = sasModeLEDS[9]; // B:0
+    shiftOutB[9] = sasModeLEDS[8]; // B:1
     shiftOutB[10] = throtLED[0]; // B:2
     shiftOutB[11] = throtLED[1]; // B:3
     shiftOutB[12] = throtLED[2]; // B:4
@@ -1220,13 +1375,13 @@ void setOutputValues()
     shiftOutB[22] = planeMode; // C:6      
     shiftOutB[23] = camRot; // C:7      
     shiftOutB[24] = !camRot; // D:0      
-    shiftOutB[25] = 0; // D:1      
-    shiftOutB[26] = 0; // D:2      
-    shiftOutB[27] = 0; // D:3      
-    shiftOutB[28] = 0; // D:4      
-    shiftOutB[29] = 0; // D:5      
-    shiftOutB[30] = 0; // D:6      
-    shiftOutB[31] = 0; // D:7      
+    shiftOutB[25] = lightsLED; // D:1      
+    shiftOutB[26] = gearLED; // D:2      
+    shiftOutB[27] = brakesLED; // D:3      
+    shiftOutB[28] = CAG01_LED; // D:4      
+    shiftOutB[29] = CAG02_LED; // D:5      
+    shiftOutB[30] = totalFuel; // D:6      
+    shiftOutB[31] = stageFuel; // D:7      
     // shiftOutB[32] = 0; // E:0      
     // shiftOutB[33] = 0; // E:1      
     // shiftOutB[34] = 0; // E:2      
