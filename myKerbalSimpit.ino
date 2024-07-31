@@ -390,11 +390,11 @@ if(rocketMode){
     pitch = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX),INT16_MIN,INT16_MAX); //y
   }
 } else if(planeMode){
-    if((deadzoneCenter_rY - deadzone) < analogInput && analogInput < (deadzoneCenter_rY + deadzone)){
+  if((deadzoneCenter_rY - deadzone) < analogInput && analogInput < (deadzoneCenter_rY + deadzone)){
     pitch = 0;
   } else {
-    pitch = constrain(map(analogInput,0,1023,INT16_MIN,INT16_MAX-1),INT16_MIN,INT16_MAX); //y
-    pitch = -pitch; //invert
+    pitch = constrain(map(analogInput,0,1023,INT16_MIN+1,INT16_MAX-1),INT16_MIN,INT16_MAX); //y
+    pitch *= -1; //invert
   }
 }
 
