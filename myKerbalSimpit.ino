@@ -637,7 +637,7 @@ if(shiftInA.update()){
     keyboardEmulatorMessage keyMsg(0x78);
     keyMsg.modifier = KEY_DOWN_MOD;
     mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
-    delay(1000); //press and hold for 1 second
+    delay(2000); //press and hold for 2 seconds
     keyMsg.modifier = KEY_UP_MOD;
     mySimpit.send(KEYBOARD_EMULATOR,keyMsg);
     // Load F9 = 0x78
